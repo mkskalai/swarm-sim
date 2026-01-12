@@ -46,3 +46,8 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# ArduPilot SITL generated files
+eeprom.bin
+*.tlog
+*.tlog.raw

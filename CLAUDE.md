@@ -113,10 +113,10 @@ A simulation platform for drone swarm research using ArduPilot SITL, Gazebo Harm
 - [x] Gazebo Harmonic
 - [x] ArduPilot SITL
 - [x] ardupilot_gazebo plugin
-- [ ] MAVSDK-Python
+- [x] MAVSDK-Python
+- [x] Camera sensor configuration
 - [ ] ROS2 workspace for swarm
 - [ ] Multi-drone world files
-- [ ] Camera sensor configuration
 
 ---
 
@@ -203,19 +203,117 @@ pip install mavsdk
 - Disable rendering when not needed: `gz sim -s` (server only)
 - Consider distributing SITL instances across CPU cores
 
+### Challenge 7: Hybrid GPU (Intel/NVIDIA) EGL Errors
+
+**Problem:** On laptops with hybrid Intel/NVIDIA graphics, Gazebo's OGRE2 renderer fails with:
+```
+libEGL warning: egl: failed to create dri2 screen
+glx: failed to create dri3 screen
+failed to load driver: nouveau
+```
+
+The issue is OGRE2 tries to use the Intel GPU's Mesa EGL by default, which fails when camera sensors are present.
+
+**Solution:**
+```bash
+# Force NVIDIA GPU for rendering
+export __GLX_VENDOR_LIBRARY_NAME=nvidia
+export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+export __NV_PRIME_RENDER_OFFLOAD=1
+
+# Then run Gazebo normally
+gz sim worlds/single_drone.sdf
+```
+
+These variables are automatically set by `scripts/setup_env.sh` when NVIDIA hardware is detected.
+
+### Challenge 8: VSCode Snap Terminal Library Conflicts
+
+**Problem:** When running Gazebo from VSCode's integrated terminal (VSCode installed via snap), you get:
+```
+gz sim gui: symbol lookup error: /snap/core20/current/lib/x86_64-linux-gnu/libpthread.so.0: undefined symbol: __libc_pthread_init
+```
+
+The snap-confined VSCode injects its own glibc libraries which conflict with system libraries.
+
+**Solution:**
+Option 1: Use an external terminal (Ctrl+Alt+T) instead of VSCode's integrated terminal.
+
+Option 2: Source the setup script which cleans snap paths:
+```bash
+source scripts/setup_env.sh
+gz sim worlds/single_drone.sdf
+```
+
+The setup script automatically detects VSCode snap environment and removes conflicting library paths.
+
+### Challenge 9: SITL Frame Selection (JSON vs gazebo-iris)
+
+**Problem:** ArduPilot SITL shows "link 1 down" even when Gazebo is running with the ardupilot_gazebo plugin. Using `-f gazebo-iris` frame results in protocol magic errors.
+
+**Solution:**
+The ardupilot_gazebo plugin uses the JSON SITL interface, not the older FDM protocol. Use `-f JSON` instead of `-f gazebo-iris`:
+
+```bash
+# WRONG - uses old FDM protocol
+sim_vehicle.py -v ArduCopter -f gazebo-iris --console
+
+# CORRECT - uses JSON interface matching ardupilot_gazebo
+cd ~/ardupilot/ArduCopter && sim_vehicle.py -v ArduCopter -f JSON --console --out=udp:127.0.0.1:14540
+```
+
+Also ensure Gazebo is started with `-r` flag to run immediately (not paused):
+```bash
+gz sim -r worlds/single_drone.sdf
+```
+
+### Challenge 10: MAVSDK Connection Port
+
+**Problem:** MAVSDK waits forever at "Waiting to discover system on udp://:14540" even though SITL is running.
+
+**Solution:**
+By default, `sim_vehicle.py` only outputs MAVLink to port 14550 (for QGroundControl). MAVSDK expects port 14540.
+
+Add the `--out` flag to enable MAVSDK connection:
+```bash
+# Start SITL with MAVSDK output port
+sim_vehicle.py -v ArduCopter -f JSON --console --out=udp:127.0.0.1:14540
+```
+
+Or add it dynamically in MAVProxy console:
+```
+output add 127.0.0.1:14540
+```
+
+### Challenge 11: Paths with Spaces in GZ_SIM_RESOURCE_PATH
+
+**Problem:** Gazebo fails with "Unable to find or download file" when project path contains spaces (e.g., "python projects").
+
+**Solution:**
+Gazebo's resource path parsing doesn't handle spaces well. Use a symlink:
+```bash
+ln -s "/path/with spaces/project" ~/project-symlink
+```
+
+Then run Gazebo from a directory without spaces:
+```bash
+cd ~/ardupilot_gazebo
+gz sim -r ~/project-symlink/worlds/single_drone.sdf
+```
+
 ---
 
 ## Development Phases
 
-### Phase 1: Single Drone Foundation ✅ → 🔄
+### Phase 1: Single Drone Foundation ✅
 **Goal:** Reliable single drone control via MAVSDK
 
-- [ ] Install MAVSDK-Python in venv
-- [ ] Create basic connection test script
-- [ ] Implement takeoff/land/goto commands
-- [ ] Add camera feed subscription
-- [ ] Create world file with RGB camera drone
-- [ ] Test offboard control mode
+- [x] Install MAVSDK-Python in venv
+- [x] Create basic connection test script
+- [x] Implement takeoff/land/goto commands
+- [x] Add camera feed subscription
+- [x] Create world file with RGB camera drone
+- [x] Test offboard control mode
 
 **Deliverable:** `swarm/core/drone.py` - Single drone controller class
 
@@ -353,23 +451,37 @@ swarm/
 ## Key Commands Reference
 
 ```bash
+# Create symlink to avoid path-with-spaces issues (one-time setup)
+ln -s "/home/maks/Desktop/python projects/claude/swarm" ~/swarm
+
 # Activate environment
 source ~/venv-ardupilot/bin/activate
-source /opt/ros/jazzy/setup.bash
 
-# Launch single Gazebo world
-gz sim worlds/single_drone.sdf
+# Terminal 1: Launch Gazebo (-r flag starts unpaused)
+cd ~/ardupilot_gazebo
+gz sim -r ~/swarm/worlds/single_drone.sdf
 
-# Launch ArduPilot SITL (separate terminal)
-sim_vehicle.py -v ArduCopter -f gazebo-iris --console --map
+# Terminal 2: Launch ArduPilot SITL
+# IMPORTANT: Use -f JSON (not gazebo-iris) and --out for MAVSDK port
+cd ~/ardupilot/ArduCopter
+sim_vehicle.py -v ArduCopter -f JSON --console --out=udp:127.0.0.1:14540
+
+# Terminal 3: Run tests
+source ~/venv-ardupilot/bin/activate
+cd ~/swarm
+python scripts/test_connection.py
 
 # Launch multiple SITL (example for 3 drones)
+# Each instance needs unique ports: base + (instance * 10)
 for i in {0..2}; do
-    sim_vehicle.py -v ArduCopter -f gazebo-iris --instance $i -I $i &
+    cd ~/ardupilot/ArduCopter
+    sim_vehicle.py -v ArduCopter -f JSON --instance $i -I $i \
+        --out=udp:127.0.0.1:$((14540 + i*10)) &
 done
 
 # Connect MAVSDK to SITL
-# Default: udp://:14540 (instance 0)
+# Instance 0: udp://:14540
+# Instance 1: udp://:14550
 # Instance N: udp://:$((14540 + N*10))
 
 # ROS2-Gazebo bridge (camera example)
