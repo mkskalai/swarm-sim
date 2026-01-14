@@ -51,3 +51,5 @@ Thumbs.db
 eeprom.bin
 *.tlog
 *.tlog.raw
+*.parm
+terrain/
