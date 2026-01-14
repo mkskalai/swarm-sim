@@ -252,6 +252,23 @@ source ~/setup_swarm_env.sh
 
 # Install Python dependencies
 pip install -r requirements.txt
+
+# Generate drone models and world file for 3 drones
+python scripts/generate_world.py --num-drones 3
+
+# This creates:
+#   - models/Drone1/, Drone2/, Drone3/ (from DroneTemplate)
+#   - worlds/multi_drone_3.sdf
+```
+
+The `generate_world.py` script:
+1. Creates drone models in `models/` by copying from `models/DroneTemplate/`
+2. Each drone model gets a unique `fdm_port_in` for ArduPilot SITL communication
+3. Generates a world file with all drones positioned in a line
+
+You can generate more drones later:
+```bash
+python scripts/generate_world.py --num-drones 6 --spacing 8.0
 ```
 
 ---

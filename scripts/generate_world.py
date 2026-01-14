@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Generate multi-drone Gazebo world files from Jinja2 template.
+"""Generate multi-drone Gazebo world files and drone models.
 
-This script generates SDF world files for multi-drone simulations.
-Each drone gets unique FDM ports for ArduPilot communication.
+This script:
+1. Creates drone models (Drone1, Drone2, ...) in the project's models/ directory
+2. Generates SDF world files for multi-drone simulations
+3. Each drone gets unique FDM ports for ArduPilot communication
 
-It also creates any missing drone models in ~/ardupilot_gazebo/models/
-by copying Drone1 and modifying the fdm_port_in setting.
+Models are generated from the DroneTemplate in models/DroneTemplate/.
+The template includes iris_with_standoffs from ardupilot_gazebo.
 
 Usage:
     python scripts/generate_world.py --num-drones 3
-    python scripts/generate_world.py --num-drones 6 --spacing 8.0 --output worlds/custom.sdf
+    python scripts/generate_world.py --num-drones 6 --spacing 8.0
+
+Prerequisites:
+    - ardupilot_gazebo installed (provides iris_with_standoffs model)
+    - GZ_SIM_RESOURCE_PATH includes ardupilot_gazebo/models and this project's models/
 """
 
 import argparse
@@ -30,14 +36,14 @@ except ImportError:
 
 from swarm.core.config import FleetConfig
 
-# Path to ardupilot_gazebo models
-ARDUPILOT_GAZEBO_MODELS = Path.home() / "ardupilot_gazebo" / "models"
+# Path to project models directory
+PROJECT_MODELS = PROJECT_ROOT / "models"
 
 
 def ensure_drone_model(drone_number: int, fdm_port: int) -> bool:
-    """Ensure a drone model exists in ardupilot_gazebo/models/.
+    """Ensure a drone model exists in the project's models/ directory.
 
-    Creates DroneN by copying Drone1 and updating the fdm_port_in.
+    Creates DroneN by copying DroneTemplate and updating the model name and fdm_port_in.
 
     Args:
         drone_number: Drone number (1-indexed, e.g., 1, 2, 3...)
@@ -47,17 +53,25 @@ def ensure_drone_model(drone_number: int, fdm_port: int) -> bool:
         True if model exists or was created successfully
     """
     model_name = f"Drone{drone_number}"
-    model_dir = ARDUPILOT_GAZEBO_MODELS / model_name
+    model_dir = PROJECT_MODELS / model_name
 
-    # Check if model already exists
+    # Check if model already exists with correct port
     if model_dir.exists():
-        return True
+        # Verify the port is correct
+        sdf_file = model_dir / "model.sdf"
+        if sdf_file.exists():
+            content = sdf_file.read_text()
+            if f"<fdm_port_in>{fdm_port}</fdm_port_in>" in content:
+                return True
+            # Port mismatch - regenerate
+            print(f"Regenerating {model_name} with correct port {fdm_port}...")
+            shutil.rmtree(model_dir)
 
-    # Need to create from Drone1 template
-    template_dir = ARDUPILOT_GAZEBO_MODELS / "Drone1"
+    # Get template
+    template_dir = PROJECT_MODELS / "DroneTemplate"
     if not template_dir.exists():
-        print(f"ERROR: Template model Drone1 not found at {template_dir}")
-        print("Please ensure ardupilot_gazebo is properly set up with Drone1 model")
+        print(f"ERROR: DroneTemplate not found at {template_dir}")
+        print("Please ensure the project is properly set up with models/DroneTemplate/")
         return False
 
     print(f"Creating model {model_name} with fdm_port_in={fdm_port}...")
@@ -70,8 +84,8 @@ def ensure_drone_model(drone_number: int, fdm_port: int) -> bool:
         config_file = model_dir / "model.config"
         if config_file.exists():
             content = config_file.read_text()
-            content = content.replace("<name>Drone1</name>", f"<name>{model_name}</name>")
-            content = content.replace("Drone1", model_name)
+            content = content.replace("<name>DroneTemplate</name>", f"<name>{model_name}</name>")
+            content = content.replace("DroneTemplate", model_name)
             config_file.write_text(content)
 
         # Update model.sdf - change model name and fdm_port_in
@@ -79,7 +93,7 @@ def ensure_drone_model(drone_number: int, fdm_port: int) -> bool:
         if sdf_file.exists():
             content = sdf_file.read_text()
             # Update model name
-            content = content.replace('<model name="Drone1">', f'<model name="{model_name}">')
+            content = content.replace('<model name="DroneTemplate">', f'<model name="{model_name}">')
             # Update fdm_port_in
             content = re.sub(
                 r"<fdm_port_in>\d+</fdm_port_in>",
@@ -108,7 +122,7 @@ def generate_world(
 ) -> Path:
     """Generate SDF world file with N drones.
 
-    Also creates any missing drone models in ~/ardupilot_gazebo/models/.
+    Also creates any missing drone models in models/.
 
     Args:
         num_drones: Number of drones to spawn.
@@ -128,8 +142,11 @@ def generate_world(
         formation_spacing=spacing,
     )
 
+    # Ensure models directory exists
+    PROJECT_MODELS.mkdir(exist_ok=True)
+
     # Ensure all drone models exist
-    print(f"\nEnsuring {num_drones} drone models exist...")
+    print(f"\nEnsuring {num_drones} drone models exist in {PROJECT_MODELS}...")
     for i in range(num_drones):
         drone_number = i + 1  # 1-indexed (Drone1, Drone2, etc.)
         fdm_port = config.get_fdm_port(i)
@@ -143,7 +160,7 @@ def generate_world(
         x, y, z = config.get_spawn_position(i)
         drone_number = i + 1
         drones.append({
-            "name": f"Drone{drone_number}",  # Match ardupilot_gazebo naming
+            "name": f"Drone{drone_number}",  # Match model naming
             "instance_id": i,
             "fdm_port": config.get_fdm_port(i),
             "mavsdk_port": config.get_mavsdk_port(i),
@@ -171,7 +188,7 @@ def generate_world(
 
     # Write output
     output_path.write_text(world_sdf)
-    print(f"Generated world with {num_drones} drones: {output_path}")
+    print(f"\nGenerated world with {num_drones} drones: {output_path}")
 
     # Print port summary
     print("\nPort assignments:")
@@ -181,12 +198,18 @@ def generate_world(
         pos = f"({drone['x']:.1f}, {drone['y']:.1f}, {drone['z']:.3f})"
         print(f"{drone['name']:<10} {drone['fdm_port']:<12} {drone['mavsdk_port']:<12} {pos}")
 
+    print("\n" + "=" * 60)
+    print("IMPORTANT: Ensure GZ_SIM_RESOURCE_PATH includes:")
+    print(f"  - {PROJECT_MODELS} (for Drone1, Drone2, etc.)")
+    print("  - ~/ardupilot_gazebo/models (for iris_with_standoffs)")
+    print("=" * 60)
+
     return output_path
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate multi-drone Gazebo world files",
+        description="Generate multi-drone Gazebo world files and models",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -194,9 +217,9 @@ Examples:
     python scripts/generate_world.py --num-drones 6 --spacing 8.0
     python scripts/generate_world.py -n 3 -o worlds/test.sdf
 
-After generating, run:
-    cd ~/ardupilot_gazebo
-    gz sim -r ~/swarm/worlds/multi_drone_3.sdf
+After generating, source the environment and run:
+    source scripts/setup_env.sh
+    gz sim -r worlds/multi_drone_3.sdf
         """,
     )
     parser.add_argument(

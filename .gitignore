@@ -53,3 +53,9 @@ eeprom.bin
 *.tlog.raw
 *.parm
 terrain/
+
+# Generated drone models (keep DroneTemplate, ignore Drone1, Drone2, etc.)
+models/Drone[0-9]*/
+
+# Generated world files
+worlds/multi_drone_*.sdf
