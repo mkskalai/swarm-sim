@@ -509,16 +509,16 @@ Multi-drone configuration based on tutorial by [AbdullahArpaci](https://github.c
 
 **Deliverable:** `swarm/core/fleet.py` - Fleet spawning and management
 
-### Phase 3: Basic Swarm Coordination
+### Phase 3: Basic Swarm Coordination ✅
 **Goal:** Coordinated movement patterns
 
-- [ ] Implement formation flying (line, V, grid)
-- [ ] Add leader-follower mode
-- [ ] Create waypoint mission distribution
-- [ ] Handle drone failures gracefully
-- [ ] Test with 6 drones
+- [x] Implement formation flying (line, V, grid, triangle, circle, diamond)
+- [x] Add leader-follower mode
+- [x] Create waypoint mission distribution
+- [x] Handle drone failures gracefully
+- [x] Test with 3+ drones
 
-**Deliverable:** `swarm/coordination/formations.py`
+**Deliverable:** `swarm/coordination/` module
 
 ### Phase 4: ROS2 Integration
 **Goal:** P2P communication layer
@@ -968,6 +968,156 @@ python scripts/test_fleet.py --num-drones 3
 | `scripts/launch_sitl.py` | Launch/manage multiple SITL instances |
 | `scripts/test_fleet.py` | Integration test for fleet operations |
 | `tests/test_phase2.py` | Unit tests for FleetConfig, Fleet |
+
+---
+
+## Phase 3 Implementation Reference
+
+This section documents the Phase 3 implementation (Swarm Coordination).
+
+### Coordination Module: `swarm/coordination/`
+
+**SwarmController** - Main orchestrator using pymavlink:
+```python
+class SwarmController:
+    def __init__(self, config: Optional[SwarmConfig] = None)
+
+    # Connection management
+    def connect_all(timeout: float = None) -> bool
+    def disconnect_all() -> None
+
+    # Basic flight commands
+    def wait_for_ekf_all(timeout: float = None) -> bool
+    def set_mode_all(mode: str) -> bool
+    def arm_all() -> bool
+    def disarm_all() -> None
+    def takeoff_all(altitude: float = 10.0, wait: bool = True) -> bool
+    def land_all() -> None
+    def return_to_launch_all() -> None
+
+    # Formation flying (waits for arrival, then holds)
+    def fly_formation(
+        formation_type: FormationType,
+        duration: float = 15.0,
+        config: FormationConfig = None,
+        arrival_timeout: float = 30.0,
+        arrival_tolerance: float = 2.0,
+    ) -> bool
+    def fly_formation_transition(
+        from_type: FormationType,
+        to_type: FormationType,
+        transition_duration: float = 5.0,
+        hold_duration: float = 10.0,
+    ) -> bool
+
+    # Leader-follower mode
+    def start_leader_follower(leader_id: int, formation_type: FormationType) -> None
+    def update_leader_follower(
+        leader_position: PositionNED,
+        duration: float = None,
+        wait_for_arrival: bool = True,
+    ) -> None
+
+    # Mission execution
+    def execute_mission(mission: SwarmMission) -> bool
+```
+
+**FormationType Enum:**
+```
+LINE, V_FORMATION, TRIANGLE, GRID, CIRCLE, DIAMOND
+```
+
+**SwarmConfig:**
+```python
+@dataclass
+class SwarmConfig:
+    num_drones: int = 3
+    base_port: int = 14540
+    heartbeat_timeout: float = 3.0
+    position_update_rate: float = 4.0  # Hz
+    connection_timeout: float = 30.0
+    ekf_timeout: float = 60.0
+```
+
+### Key Design: Position Arrival Verification
+
+All formation and movement commands now:
+1. Send position commands to drones
+2. **Wait for drones to reach target positions** (within tolerance)
+3. Then hold/continue for the specified duration
+
+This fixes the issue where drones were never verified to have actually moved.
+
+### All-in-One Test Runner: `scripts/run_phase3_test.py`
+
+Manages complete test lifecycle: Gazebo → SITL instances → Tests → Cleanup
+
+**Prerequisites:**
+```bash
+# Build ArduPilot (one-time, or after code changes)
+cd ~/ardupilot
+./waf configure --board sitl
+./waf copter
+```
+
+**Usage:**
+```bash
+# Default: 3 drones, all tests
+python scripts/run_phase3_test.py
+
+# 6 drones
+python scripts/run_phase3_test.py --num-drones 6
+
+# Run only formations test
+python scripts/run_phase3_test.py --num-drones 3 --test formations
+
+# Skip Gazebo if already running manually
+python scripts/run_phase3_test.py --skip-gazebo
+
+# Skip both Gazebo and SITL if already running
+python scripts/run_phase3_test.py --skip-gazebo --skip-sitl
+
+# Custom startup delay between SITL launches
+python scripts/run_phase3_test.py --num-drones 6 --startup-delay 8
+```
+
+### Manual Testing (Separate Terminals)
+
+**Terminal 1: Start Gazebo**
+```bash
+gz sim -v4 -r ~/ardupilot_gazebo/worlds/tutorial_multi_drone.sdf
+```
+
+**Terminals 2-4: Start SITL instances**
+```bash
+sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON -I0 --out=udp:127.0.0.1:14540 --console --no-rebuild
+sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON -I1 --out=udp:127.0.0.1:14541 --console --no-rebuild
+sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON -I2 --out=udp:127.0.0.1:14542 --console --no-rebuild
+```
+
+**Terminal 5: Run test**
+```bash
+python scripts/test_phase3.py --num-drones 3
+```
+
+### Test Scripts (Phase 3)
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/run_phase3_test.py` | All-in-one test runner (Gazebo + SITL + tests) |
+| `scripts/test_phase3.py` | Integration test (requires running Gazebo/SITL) |
+| `scripts/fly_swarm_pymavlink.py` | Standalone formation flight demo |
+| `tests/test_phase3.py` | Unit tests (no simulation required) |
+
+### Coordination Submodules
+
+| Module | Purpose |
+|--------|---------|
+| `formations.py` | Formation calculations (LINE, V, TRIANGLE, GRID, CIRCLE, DIAMOND) |
+| `leader_follower.py` | Leader-follower mode with auto-promotion on failure |
+| `missions.py` | Waypoint mission planning and execution |
+| `failure_handler.py` | Drone failure detection and graceful degradation |
+| `swarm_controller.py` | Main pymavlink-based orchestrator |
 
 ---
 

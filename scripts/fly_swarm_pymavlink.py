@@ -236,6 +236,14 @@ def get_position(conn: mavutil.mavlink_connection) -> tuple:
     return (0, 0, 0)
 
 
+def get_position_ned(conn: mavutil.mavlink_connection, timeout: float = 1.0) -> tuple:
+    """Get current position in local NED frame."""
+    msg = conn.recv_match(type='LOCAL_POSITION_NED', blocking=True, timeout=timeout)
+    if msg:
+        return (msg.x, msg.y, msg.z)
+    return None
+
+
 def wait_for_altitude(conn: mavutil.mavlink_connection, target_alt: float,
                       tolerance: float = 1.0, timeout: float = 30.0) -> bool:
     """Wait for drone to reach target altitude."""
@@ -245,6 +253,29 @@ def wait_for_altitude(conn: mavutil.mavlink_connection, target_alt: float,
         if abs(alt - target_alt) < tolerance:
             return True
         time.sleep(0.5)
+    return False
+
+
+def wait_for_position_ned(conn: mavutil.mavlink_connection,
+                          target_n: float, target_e: float, target_d: float,
+                          tolerance: float = 2.0, timeout: float = 30.0) -> bool:
+    """Wait for drone to reach target NED position while sending commands."""
+    start = time.time()
+    interval = 0.25  # 4Hz
+
+    while time.time() - start < timeout:
+        # Keep sending position commands
+        send_position_ned(conn, target_n, target_e, target_d)
+
+        # Check current position
+        pos = get_position_ned(conn, timeout=0.3)
+        if pos:
+            dist = ((pos[0] - target_n)**2 + (pos[1] - target_e)**2 + (pos[2] - target_d)**2)**0.5
+            if dist <= tolerance:
+                return True
+
+        time.sleep(interval)
+
     return False
 
 
@@ -267,9 +298,13 @@ def send_position_ned(conn: mavutil.mavlink_connection,
 
 
 def fly_formation(connections: list, formation_name: str,
-                  duration: float = 15.0, rate: float = 4.0):
+                  duration: float = 15.0, rate: float = 4.0,
+                  arrival_timeout: float = 30.0, arrival_tolerance: float = 2.0):
     """
     Fly all drones to a formation and hold for specified duration.
+
+    First waits for all drones to reach their formation positions,
+    then holds for the specified duration.
 
     ArduPilot GUIDED mode requires continuous position updates (at least 1Hz).
     We send at 4Hz by default for smooth control.
@@ -288,8 +323,43 @@ def fly_formation(connections: list, formation_name: str,
         n, e, d = positions[i]
         print(f"    Drone {i}: N={n}, E={e}, Alt={-d}m")
 
-    start = time.time()
+    # Phase 1: Wait for all drones to reach their positions
+    print(f"  Waiting for drones to reach positions (tolerance={arrival_tolerance}m)...")
+    arrived = [False] * len(connections)
     interval = 1.0 / rate
+    start = time.time()
+
+    while time.time() - start < arrival_timeout:
+        all_arrived = True
+        for i, conn in enumerate(connections):
+            n, e, d = positions[i]
+            send_position_ned(conn, n, e, d)
+
+            if not arrived[i]:
+                pos = get_position_ned(conn, timeout=0.3)
+                if pos:
+                    dist = ((pos[0] - n)**2 + (pos[1] - e)**2 + (pos[2] - d)**2)**0.5
+                    if dist <= arrival_tolerance:
+                        arrived[i] = True
+                        print(f"    Drone {i} arrived (dist={dist:.1f}m)")
+                    else:
+                        all_arrived = False
+                else:
+                    all_arrived = False
+
+        if all_arrived:
+            break
+
+        time.sleep(interval)
+
+    # Check if any drones didn't arrive
+    for i, a in enumerate(arrived):
+        if not a:
+            print(f"    WARNING: Drone {i} did not reach position in time")
+
+    # Phase 2: Hold formation for duration
+    print(f"  Holding formation for {duration}s...")
+    start = time.time()
 
     while time.time() - start < duration:
         for i, conn in enumerate(connections):
