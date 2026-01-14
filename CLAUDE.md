@@ -63,17 +63,17 @@ A simulation platform for drone swarm research using ArduPilot SITL, Gazebo Harm
 
 ### Architecture Decisions Explained
 
-#### 1. MAVSDK-Python vs MAVROS2 vs pymavlink
+#### 1. pymavlink vs MAVSDK-Python vs MAVROS2
 
-**We chose: MAVSDK-Python**
+**We chose: pymavlink** (updated from original MAVSDK choice)
 
 | Option | Pros | Cons |
 |--------|------|------|
-| **MAVSDK-Python** | Clean async API, good swarm support, abstracts MAVLink complexity | Less ROS-native |
-| MAVROS2 | Tight ROS2 integration, uses ROS topics/services | Heavy, complex setup, one node per drone |
-| pymavlink | Maximum control, lightweight | Verbose, manual message handling |
+| **pymavlink** | Port isolation works, lightweight, full control | Manual message handling, synchronous |
+| MAVSDK-Python | Clean async API, abstracts complexity | Routes by sysid - fails with same-sysid drones |
+| MAVROS2 | Tight ROS2 integration | Heavy, complex setup, one node per drone |
 
-**Why MAVSDK:** For swarms, we need to manage many connections efficiently. MAVSDK's async design handles this well. We can still publish to ROS2 topics for inter-drone communication while using MAVSDK for flight control.
+**Why pymavlink:** MAVSDK routes commands by MAVLink system ID. When all SITL instances have sysid=1 (default), MAVSDK sends all commands to the same drone. pymavlink uses raw sockets - each connection is isolated by port. For real hardware with onboard computers (1:1 connection), this matches the architecture perfectly.
 
 #### 2. Hybrid Control Architecture
 
@@ -301,6 +301,187 @@ cd ~/ardupilot_gazebo
 gz sim -r ~/project-symlink/worlds/single_drone.sdf
 ```
 
+### Challenge 12: MAVProxy --out Parameter and Headless Mode
+
+**Problem:** When running SITL with `--no-mavproxy` (headless mode), the `--out=udp:HOST:PORT` parameter has no effect and MAVSDK cannot connect.
+
+**Root Cause:**
+The `--out` parameter is a **MAVProxy** feature, not a SITL feature. It tells MAVProxy to forward MAVLink data to additional endpoints. When using `--no-mavproxy`, there's no MAVProxy running to do the forwarding.
+
+**SITL MAVLink Architecture:**
+
+```
+WITH MAVProxy (--console or default):
+  SITL → MAVProxy → --out endpoints (UDP)
+                  → MAVProxy console
+  MAVSDK connects via UDP to --out port
+
+WITHOUT MAVProxy (--no-mavproxy):
+  SITL → listens directly on TCP port 5760 + (instance * 10)
+  MAVSDK connects via TCP directly to SITL
+```
+
+**Solution:**
+
+For headless/automated operation, connect MAVSDK directly to SITL's native TCP ports:
+
+```python
+# Instance 0: tcp://127.0.0.1:5760
+# Instance 1: tcp://127.0.0.1:5770
+# Instance 2: tcp://127.0.0.1:5780
+# Instance N: tcp://127.0.0.1:{5760 + N*10}
+
+# WRONG - doesn't work without MAVProxy:
+sim_vehicle.py -f JSON -I 0 --out=udp:127.0.0.1:14540 --no-mavproxy
+
+# CORRECT - headless mode, MAVSDK connects to TCP 5760:
+sim_vehicle.py -f JSON -I 0 --no-mavproxy
+# Then in code: system_address = "tcpout://127.0.0.1:5760"
+
+# ALTERNATIVE - with MAVProxy forwarding:
+sim_vehicle.py -f JSON -I 0 --out=udp:127.0.0.1:14540
+# Then in code: system_address = "udpin://0.0.0.0:14540"
+```
+
+**Port Summary:**
+
+| Mode | SITL Command | MAVSDK Connection |
+|------|--------------|-------------------|
+| With MAVProxy | `--out=udp:127.0.0.1:14540` | `udpin://0.0.0.0:14540` |
+| Headless | `--no-mavproxy` | `tcpout://127.0.0.1:5760` |
+
+**MAVSDK URI Schemes:**
+- `udpin://` - Listen for incoming UDP (requires `0.0.0.0` for interface)
+- `udpout://` - Send UDP to target
+- `tcpin://` - Listen for incoming TCP connections (act as server)
+- `tcpout://` - Connect to TCP server (act as client) - **use this for SITL**
+
+### Challenge 13: sim_vehicle.py --speedup Requires Integer
+
+**Problem:** SITL fails silently when `--speedup` is passed a float value like `1.0`.
+
+**Solution:**
+Always pass an integer to `--speedup`:
+```bash
+# WRONG
+sim_vehicle.py -f JSON --speedup 1.0
+
+# CORRECT
+sim_vehicle.py -f JSON --speedup 1
+```
+
+### Debugging Best Practice: Always Log Subprocess Output
+
+When launching subprocesses (like SITL), always capture output to log files instead of using `subprocess.DEVNULL`. Silent failures are extremely difficult to debug.
+
+```python
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+stdout_log = open(log_dir / f"process_{i}_stdout.log", "w")
+stderr_log = open(log_dir / f"process_{i}_stderr.log", "w")
+
+proc = subprocess.Popen(
+    cmd,
+    stdout=stdout_log,
+    stderr=stderr_log,
+)
+```
+
+Check logs at `logs/sitl_*_stdout.log` and `logs/sitl_*_stderr.log` when debugging SITL startup issues.
+
+---
+
+## Phase 2 Multi-Drone: SOLVED
+
+After extensive debugging, multi-drone simulation now works. Key solution documented here.
+
+### Working Setup
+
+**Models:** Use pre-configured copies in `~/ardupilot_gazebo/models/`:
+- `Drone1` (fdm_port_in=9002, fdm_port_out=9005)
+- `Drone2` (fdm_port_in=9012, fdm_port_out=9015)
+- `Drone3` (fdm_port_in=9022, fdm_port_out=9025)
+
+**World:** `~/ardupilot_gazebo/worlds/tutorial_multi_drone.sdf` with ODE physics, ogre renderer.
+
+**SITL Launch:**
+```bash
+# Terminal 1: Gazebo
+gz sim -v4 -r ~/ardupilot_gazebo/worlds/tutorial_multi_drone.sdf
+
+# Terminals 2-4: SITL with MAVProxy (provides UDP forwarding)
+sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON -I0 --out=udp:127.0.0.1:14540
+sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON -I1 --out=udp:127.0.0.1:14541
+sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON -I2 --out=udp:127.0.0.1:14542
+```
+
+**Flight Script:** `scripts/fly_swarm_pymavlink.py` - uses pymavlink for reliable multi-drone control.
+
+### Key Insights
+
+#### 1. fdm_port_out is Required
+
+Despite being marked "deprecated" in plugin code, `fdm_port_out` is necessary for multi-drone:
+```xml
+<fdm_port_in>9002</fdm_port_in>
+<fdm_port_out>9005</fdm_port_out>  <!-- SITL listens on 9002 + 3 -->
+```
+
+SITL calculates: `fdm_port_out = fdm_port_in + 3` (not +1 as some docs suggest).
+
+#### 2. EKF Convergence Required Before Arming
+
+"Need Position Estimate" error means wait for EKF, not just GPS:
+```python
+def wait_for_ekf(conn, timeout=60.0):
+    while time.time() - start < timeout:
+        msg = conn.recv_match(type='EKF_STATUS_REPORT', blocking=True, timeout=1)
+        if msg and (msg.flags & 0x18) != 0:  # bits 3 or 4 = position OK
+            return True
+    return False
+```
+
+#### 3. MAVSDK System ID Routing Issue
+
+**Problem:** MAVSDK routes commands by MAVLink system ID. All SITL instances default to sysid=1, so MAVSDK sends all commands to the same drone regardless of port.
+
+**Solution:** Use pymavlink instead. Each `mavlink_connection()` is a separate UDP socket - commands stay isolated by port.
+
+```python
+# pymavlink - works (port isolation)
+conn0 = mavutil.mavlink_connection('udpin:0.0.0.0:14540')
+conn1 = mavutil.mavlink_connection('udpin:0.0.0.0:14541')
+# Commands on conn0 go to drone 0, conn1 to drone 1
+
+# MAVSDK - doesn't work with same sysid
+drone0 = System(); drone0.connect("udpin://0.0.0.0:14540")
+drone1 = System(); drone1.connect("udpin://0.0.0.0:14541")
+# Both route to same drone because sysid=1
+```
+
+#### 4. Architecture for Real Hardware
+
+For autonomous swarms with onboard computers, each drone talks to its OWN flight controller:
+```
+┌─────────────────────────────────────────────────────────┐
+│                        DRONE N                           │
+│  ┌──────────────┐    Serial/USB    ┌─────────────────┐  │
+│  │   Onboard    │◄────────────────►│ Flight Controller│  │
+│  │  Computer    │     MAVLink      │   (ArduPilot)    │  │
+│  │ (Pi/Jetson)  │                  └─────────────────┘  │
+│  └──────┬───────┘                                       │
+└─────────┼───────────────────────────────────────────────┘
+          │ WiFi mesh (application layer)
+          ▼
+     Other Drones
+```
+
+No system ID routing needed - 1:1 connection per drone. pymavlink works perfectly.
+
+### Credits
+
+Multi-drone configuration based on tutorial by [AbdullahArpaci](https://github.com/AbdullahArpaci/ros2-ardupilot-gazebo-harmonic-drone-simulation-tutorial).
+
 ---
 
 ## Development Phases
@@ -317,14 +498,14 @@ gz sim -r ~/project-symlink/worlds/single_drone.sdf
 
 **Deliverable:** `swarm/core/drone.py` - Single drone controller class
 
-### Phase 2: Multi-Drone Spawning
+### Phase 2: Multi-Drone Spawning ✅
 **Goal:** Launch N drones with unique identities
 
-- [ ] Create parameterized drone model (SDF/URDF)
-- [ ] Build launcher script for N SITL instances
-- [ ] Implement drone fleet manager class
-- [ ] Handle unique MAVLink system IDs
-- [ ] Test 3-drone simultaneous flight
+- [x] Create parameterized drone model (SDF/Jinja2 template)
+- [x] Build launcher script for N SITL instances
+- [x] Implement drone fleet manager class
+- [x] Handle unique MAVLink system IDs (port scheme: base + instance*10)
+- [x] Test 3-drone simultaneous flight
 
 **Deliverable:** `swarm/core/fleet.py` - Fleet spawning and management
 
@@ -407,7 +588,7 @@ swarm/
 ├── swarm/                    # Main Python package
 │   ├── __init__.py
 │   ├── core/
-│   │   ├── drone.py          # Single drone controller
+│   │   ├── drone.py          # Single drone controller (MAVSDK-based)
 │   │   ├── fleet.py          # Multi-drone management
 │   │   └── config.py         # Configuration management
 │   ├── coordination/
@@ -529,6 +710,267 @@ pytest tests/test_phase1.py -v
 
 ---
 
+## Phase 1 Implementation Reference
+
+This section documents the Phase 1 implementation to ease future development.
+
+### Core Module: `swarm/core/drone.py` (477 lines)
+
+**Drone Class** - Single drone controller wrapping MAVSDK:
+
+```python
+class Drone:
+    def __init__(self, config: Optional[DroneConfig] = None)
+
+    # Connection
+    async def connect(self, timeout: float = None) -> bool
+    async def disconnect() -> None
+
+    # Basic actions
+    async def arm() -> bool
+    async def disarm() -> bool
+    async def takeoff(altitude: float = None) -> bool
+    async def land() -> bool
+    async def return_to_launch() -> bool
+
+    # Position control
+    async def goto_location(lat, lon, alt, yaw) -> bool  # GPS coordinates
+    async def goto_position_ned(n, e, d, yaw, tolerance) -> bool  # Local NED frame
+
+    # Offboard control
+    async def start_offboard() -> bool
+    async def stop_offboard() -> bool
+    async def set_position_ned(n, e, d, yaw) -> bool
+    async def set_velocity_ned(vn, ve, vd, yaw_rate) -> bool
+
+    # Properties (cached from telemetry)
+    @property position -> Position  # north, east, down, yaw
+    @property global_position -> GlobalPosition  # lat, lon, alt
+    @property velocity -> Velocity
+    @property battery_level -> float
+    @property is_connected -> bool
+    @property is_armed -> bool
+    @property state -> DroneState
+```
+
+**DroneState Enum:**
+```
+DISCONNECTED -> CONNECTED -> ARMED -> TAKING_OFF -> IN_FLIGHT -> LANDING -> LANDED
+```
+
+**Telemetry Architecture:**
+- Background async tasks continuously poll position, velocity, battery, flight mode
+- Latest values cached in properties for instant access
+- 20Hz default update rate (configurable)
+
+### Configuration: `swarm/core/config.py` (60 lines)
+
+**DroneConfig:**
+```python
+@dataclass
+class DroneConfig:
+    system_address: str = "udp://:14540"
+    instance_id: int = 0
+    connection_timeout: float = 30.0
+    action_timeout: float = 10.0
+    default_altitude: float = 10.0
+    default_speed: float = 5.0
+    position_update_rate: float = 20.0
+    velocity_update_rate: float = 20.0
+
+    @classmethod
+    def for_instance(cls, instance_id: int, base_port: int = 14540) -> DroneConfig:
+        """Port = base_port + (instance_id * 10)"""
+```
+
+**SwarmConfig:**
+```python
+@dataclass
+class SwarmConfig:
+    num_drones: int = 6
+    base_port: int = 14540
+    formation_spacing: float = 5.0
+    ros_namespace: str = "swarm"
+
+    def get_drone_configs(self) -> list[DroneConfig]
+```
+
+### World File: `worlds/single_drone.sdf`
+
+**Structure:**
+- Physics: 1ms timestep, real-time factor 1.0
+- Plugins: Physics, Sensors (ogre2), UserCommands, SceneBroadcaster, IMU, NavSat
+- GPS origin: Canberra, Australia (-35.363262, 149.165237)
+- Ground: 500x500m plane
+- Drone: `<include><uri>model://iris_with_ardupilot</uri>`
+
+### Drone Model: `~/ardupilot_gazebo/models/iris_with_ardupilot/model.sdf`
+
+**ArduPilotPlugin Config (lines 782-879):**
+```xml
+<plugin name="ArduPilotPlugin" filename="ArduPilotPlugin">
+  <fdm_addr>127.0.0.1</fdm_addr>
+  <fdm_port_in>9002</fdm_port_in>  <!-- JSON SITL interface -->
+  <lock_step>1</lock_step>
+  <imuName>iris_with_standoffs::imu_link::imu_sensor</imuName>
+  <!-- 4 rotor controls with velocity PID, multiplier ±838 -->
+</plugin>
+```
+
+### Port Scheme
+
+| Instance | FDM Port (Gazebo↔SITL) | MAVSDK Port |
+|----------|------------------------|-------------|
+| 0        | 9002                   | 14540       |
+| 1        | 9012                   | 14550       |
+| 2        | 9022                   | 14560       |
+| N        | 9002 + N*10            | 14540 + N*10|
+
+### Camera: `swarm/perception/camera.py` (202 lines)
+
+Interface layer for Gazebo cameras:
+- `GazeboCamera.list_available_topics()` - uses `gz topic -l`
+- `GazeboCamera.is_publishing()` - checks camera activity
+- `get_ros2_bridge_command()` - generates bridge command for ROS2
+
+**Note:** Direct gz-transport Python bindings unavailable; use ROS2 bridge.
+
+### Test Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/test_connection.py` | Connection, telemetry, takeoff/land, goto patterns |
+| `scripts/test_offboard.py` | Offboard position/velocity control, square/circle patterns |
+| `scripts/setup_env.sh` | Environment setup (venv, paths, GPU, snap cleanup) |
+
+### Dependencies (pyproject.toml)
+
+```toml
+dependencies = [
+    "mavsdk>=2.0.0",
+    "numpy>=1.24.0",
+    "jinja2>=3.1.0",
+]
+# Optional: opencv-python for vision
+```
+
+---
+
+## Phase 2 Implementation Reference
+
+This section documents the Phase 2 implementation (Multi-Drone Spawning).
+
+### Fleet Manager: `swarm/core/fleet.py`
+
+**Fleet Class** - Manages multiple Drone instances with concurrent operations:
+
+```python
+class Fleet:
+    def __init__(self, config: Optional[FleetConfig] = None)
+
+    # Concurrent operations
+    async def connect_all(timeout: float = 30.0) -> bool
+    async def disconnect_all() -> None
+    async def arm_all() -> bool
+    async def disarm_all() -> bool
+    async def takeoff_all(altitude: float = 10.0) -> bool
+    async def land_all() -> bool
+    async def return_to_launch_all() -> bool
+
+    # Offboard control
+    async def start_offboard_all() -> bool
+    async def stop_offboard_all() -> bool
+    async def goto_positions(positions: list[Position], tolerance: float) -> bool
+    async def set_positions(positions: list[Position]) -> bool
+
+    # Status
+    def get_status() -> FleetStatus
+    def get_positions() -> list[Optional[Position]]
+    def get_battery_levels() -> list[float]
+
+    # Container protocol
+    def __len__() -> int
+    def __getitem__(index: int) -> Drone
+    def __iter__() -> Iterator[Drone]
+```
+
+**FleetState Enum:**
+```
+UNINITIALIZED -> CONNECTING -> READY -> ARMED -> IN_FLIGHT -> LANDING -> ERROR
+```
+
+**FleetConfig:**
+```python
+@dataclass
+class FleetConfig:
+    num_drones: int = 3
+    base_mavsdk_port: int = 14540
+    base_fdm_port: int = 9002
+    port_offset: int = 10
+    formation_spacing: float = 5.0
+
+    def get_drone_config(instance_id: int) -> DroneConfig
+    def get_fdm_port(instance_id: int) -> int
+    def get_mavsdk_port(instance_id: int) -> int
+    def get_spawn_position(instance_id: int) -> tuple[float, float, float]
+```
+
+### World Generation
+
+**Template:** `worlds/multi_drone.sdf.jinja`
+- Jinja2 template for N-drone worlds
+- Each drone gets unique `fdm_port_in` in ArduPilotPlugin
+
+**Generator:** `scripts/generate_world.py`
+```bash
+python scripts/generate_world.py --num-drones 3 --spacing 5.0
+# Outputs: worlds/multi_drone_3.sdf
+```
+
+### SITL Launcher: `scripts/launch_sitl.py`
+
+**SITLLauncher Class:**
+```python
+class SITLLauncher:
+    def __init__(self, num_instances: int = 3)
+    def launch_all(headless: bool = True, speedup: float = 1.0) -> bool
+    def shutdown_all() -> None
+    def get_status() -> dict
+```
+
+**Usage:**
+```bash
+python scripts/launch_sitl.py --num-instances 3 --headless
+```
+
+### Multi-Drone Commands Reference
+
+```bash
+# Generate 3-drone world
+python scripts/generate_world.py --num-drones 3
+
+# Terminal 1: Start Gazebo
+cd ~/ardupilot_gazebo
+gz sim -r ~/swarm/worlds/multi_drone_3.sdf
+
+# Terminal 2: Start SITL instances
+python scripts/launch_sitl.py --num-instances 3
+
+# Terminal 3: Run fleet test
+python scripts/test_fleet.py --num-drones 3
+```
+
+### Test Scripts (Phase 2)
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/generate_world.py` | Generate multi-drone world files |
+| `scripts/launch_sitl.py` | Launch/manage multiple SITL instances |
+| `scripts/test_fleet.py` | Integration test for fleet operations |
+| `tests/test_phase2.py` | Unit tests for FleetConfig, Fleet |
+
+---
+
 ## Decisions Log
 
 | Date | Decision | Rationale |
@@ -537,3 +979,5 @@ pytest tests/test_phase1.py -v
 | 2025-01-12 | Hybrid architecture | Balance between coordination and resilience |
 | 2025-01-12 | RGB camera only (initial) | Simplicity; depth can be added later |
 | 2025-01-12 | 6-15 drone target | Meaningful swarm behaviors without excessive resources |
+| 2025-01-14 | pymavlink over MAVSDK | MAVSDK routes by sysid causing multi-drone issues; pymavlink uses port isolation |
+| 2025-01-14 | Add fdm_port_out to models | Required for multi-drone despite being "deprecated" in plugin code |
