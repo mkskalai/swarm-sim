@@ -1,14 +1,14 @@
 <?xml version="1.0" ?>
 <!--
   Multi-drone world for Phase 2 testing.
-  Generated with {{ num_drones }} drones.
+  Generated with 6 drones.
 
   Usage:
-    python scripts/generate_world.py --num-drones {{ num_drones }}
-    gz sim -r worlds/multi_drone_{{ num_drones }}.sdf
+    python scripts/generate_world.py --num-drones 6
+    gz sim -r worlds/multi_drone_6.sdf
 
   Then start SITL instances:
-    python scripts/launch_sitl.py --num-instances {{ num_drones }}
+    python scripts/launch_sitl.py --num-instances 6
 -->
 <sdf version="1.9">
   <world name="multi_drone_world">
@@ -145,15 +145,60 @@
       </link>
     </model>
 
-{% for drone in drones %}
-    <!-- ==================== {{ drone.name }} (Instance {{ drone.instance_id }}) ==================== -->
-    <!-- MAVSDK port: {{ drone.mavsdk_port }}, FDM port: {{ drone.fdm_port }} -->
+
+    <!-- ==================== Drone1 (Instance 0) ==================== -->
+    <!-- MAVSDK port: 5760, FDM port: 9002 -->
     <include>
-      <uri>model://{{ drone.name }}</uri>
-      <name>{{ drone.name }}</name>
-      <pose>{{ drone.x }} {{ drone.y }} {{ drone.z }} 0 0 {{ drone.yaw }}</pose>
+      <uri>model://Drone1</uri>
+      <name>Drone1</name>
+      <pose>0.0 0.0 0.195 0 0 0.0</pose>
     </include>
 
-{% endfor %}
+
+    <!-- ==================== Drone2 (Instance 1) ==================== -->
+    <!-- MAVSDK port: 5770, FDM port: 9012 -->
+    <include>
+      <uri>model://Drone2</uri>
+      <name>Drone2</name>
+      <pose>5.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
+    <!-- ==================== Drone3 (Instance 2) ==================== -->
+    <!-- MAVSDK port: 5780, FDM port: 9022 -->
+    <include>
+      <uri>model://Drone3</uri>
+      <name>Drone3</name>
+      <pose>10.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
+    <!-- ==================== Drone4 (Instance 3) ==================== -->
+    <!-- MAVSDK port: 5790, FDM port: 9032 -->
+    <include>
+      <uri>model://Drone4</uri>
+      <name>Drone4</name>
+      <pose>15.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
+    <!-- ==================== Drone5 (Instance 4) ==================== -->
+    <!-- MAVSDK port: 5800, FDM port: 9042 -->
+    <include>
+      <uri>model://Drone5</uri>
+      <name>Drone5</name>
+      <pose>20.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
+    <!-- ==================== Drone6 (Instance 5) ==================== -->
+    <!-- MAVSDK port: 5810, FDM port: 9052 -->
+    <include>
+      <uri>model://Drone6</uri>
+      <name>Drone6</name>
+      <pose>25.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
   </world>
 </sdf>

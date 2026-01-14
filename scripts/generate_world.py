@@ -4,12 +4,17 @@
 This script generates SDF world files for multi-drone simulations.
 Each drone gets unique FDM ports for ArduPilot communication.
 
+It also creates any missing drone models in ~/ardupilot_gazebo/models/
+by copying Drone1 and modifying the fdm_port_in setting.
+
 Usage:
     python scripts/generate_world.py --num-drones 3
     python scripts/generate_world.py --num-drones 6 --spacing 8.0 --output worlds/custom.sdf
 """
 
 import argparse
+import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -25,6 +30,74 @@ except ImportError:
 
 from swarm.core.config import FleetConfig
 
+# Path to ardupilot_gazebo models
+ARDUPILOT_GAZEBO_MODELS = Path.home() / "ardupilot_gazebo" / "models"
+
+
+def ensure_drone_model(drone_number: int, fdm_port: int) -> bool:
+    """Ensure a drone model exists in ardupilot_gazebo/models/.
+
+    Creates DroneN by copying Drone1 and updating the fdm_port_in.
+
+    Args:
+        drone_number: Drone number (1-indexed, e.g., 1, 2, 3...)
+        fdm_port: FDM port for this drone
+
+    Returns:
+        True if model exists or was created successfully
+    """
+    model_name = f"Drone{drone_number}"
+    model_dir = ARDUPILOT_GAZEBO_MODELS / model_name
+
+    # Check if model already exists
+    if model_dir.exists():
+        return True
+
+    # Need to create from Drone1 template
+    template_dir = ARDUPILOT_GAZEBO_MODELS / "Drone1"
+    if not template_dir.exists():
+        print(f"ERROR: Template model Drone1 not found at {template_dir}")
+        print("Please ensure ardupilot_gazebo is properly set up with Drone1 model")
+        return False
+
+    print(f"Creating model {model_name} with fdm_port_in={fdm_port}...")
+
+    try:
+        # Copy the entire directory
+        shutil.copytree(template_dir, model_dir)
+
+        # Update model.config
+        config_file = model_dir / "model.config"
+        if config_file.exists():
+            content = config_file.read_text()
+            content = content.replace("<name>Drone1</name>", f"<name>{model_name}</name>")
+            content = content.replace("Drone1", model_name)
+            config_file.write_text(content)
+
+        # Update model.sdf - change model name and fdm_port_in
+        sdf_file = model_dir / "model.sdf"
+        if sdf_file.exists():
+            content = sdf_file.read_text()
+            # Update model name
+            content = content.replace('<model name="Drone1">', f'<model name="{model_name}">')
+            # Update fdm_port_in
+            content = re.sub(
+                r"<fdm_port_in>\d+</fdm_port_in>",
+                f"<fdm_port_in>{fdm_port}</fdm_port_in>",
+                content,
+            )
+            sdf_file.write_text(content)
+
+        print(f"  Created {model_dir}")
+        return True
+
+    except Exception as e:
+        print(f"ERROR: Failed to create model {model_name}: {e}")
+        # Clean up partial copy
+        if model_dir.exists():
+            shutil.rmtree(model_dir)
+        return False
+
 
 def generate_world(
     num_drones: int,
@@ -34,6 +107,8 @@ def generate_world(
     base_sitl_port: int = 5760,
 ) -> Path:
     """Generate SDF world file with N drones.
+
+    Also creates any missing drone models in ~/ardupilot_gazebo/models/.
 
     Args:
         num_drones: Number of drones to spawn.
@@ -53,12 +128,22 @@ def generate_world(
         formation_spacing=spacing,
     )
 
+    # Ensure all drone models exist
+    print(f"\nEnsuring {num_drones} drone models exist...")
+    for i in range(num_drones):
+        drone_number = i + 1  # 1-indexed (Drone1, Drone2, etc.)
+        fdm_port = config.get_fdm_port(i)
+        if not ensure_drone_model(drone_number, fdm_port):
+            raise RuntimeError(f"Failed to create Drone{drone_number} model")
+
     # Build drone configuration list
+    # Use naming convention: Drone1, Drone2, etc. (1-indexed)
     drones = []
     for i in range(num_drones):
         x, y, z = config.get_spawn_position(i)
+        drone_number = i + 1
         drones.append({
-            "name": f"drone_{i}",
+            "name": f"Drone{drone_number}",  # Match ardupilot_gazebo naming
             "instance_id": i,
             "fdm_port": config.get_fdm_port(i),
             "mavsdk_port": config.get_mavsdk_port(i),

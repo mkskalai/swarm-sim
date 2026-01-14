@@ -484,6 +484,133 @@ Multi-drone configuration based on tutorial by [AbdullahArpaci](https://github.c
 
 ---
 
+## Expanding to N Drones
+
+To run simulations with more than 3 drones, you need to create additional drone models and world files. Here's the step-by-step process:
+
+### Step 1: Generate Drone Models
+
+Each drone needs a unique model in `~/ardupilot_gazebo/models/` with a unique `fdm_port_in`. The naming convention is `Drone1`, `Drone2`, etc. (1-indexed).
+
+**Port scheme:** `fdm_port_in = 9002 + (instance_id * 10)`
+
+| Drone | Instance ID | fdm_port_in |
+|-------|-------------|-------------|
+| Drone1 | 0 | 9002 |
+| Drone2 | 1 | 9012 |
+| Drone3 | 2 | 9022 |
+| Drone4 | 3 | 9032 |
+| Drone5 | 4 | 9042 |
+| Drone6 | 5 | 9052 |
+| DroneN | N-1 | 9002 + (N-1)*10 |
+
+**To create a new drone model manually:**
+
+```bash
+# Copy Drone1 as template
+cp -r ~/ardupilot_gazebo/models/Drone1 ~/ardupilot_gazebo/models/Drone4
+
+# Edit model.config - change name
+sed -i 's/Drone1/Drone4/g' ~/ardupilot_gazebo/models/Drone4/model.config
+
+# Edit model.sdf - change model name and fdm_port_in
+sed -i 's/<model name="Drone1">/<model name="Drone4">/g' ~/ardupilot_gazebo/models/Drone4/model.sdf
+sed -i 's/<fdm_port_in>9002<\/fdm_port_in>/<fdm_port_in>9032<\/fdm_port_in>/g' ~/ardupilot_gazebo/models/Drone4/model.sdf
+```
+
+**Or use the automated generator:**
+
+```bash
+python scripts/generate_world.py --num-drones 6
+# This creates Drone4, Drone5, Drone6 models automatically
+```
+
+### Step 2: Generate World File
+
+The world file includes all drones with their spawn positions. Use the generator:
+
+```bash
+python scripts/generate_world.py --num-drones 6 --spacing 5.0
+# Output: worlds/multi_drone_6.sdf
+```
+
+Options:
+- `--num-drones N`: Number of drones (default: 3)
+- `--spacing M`: Distance between drones in meters (default: 5.0)
+- `--output PATH`: Custom output path
+
+### Step 3: Start SITL Instances
+
+Each drone needs its own SITL instance with MAVProxy for UDP forwarding:
+
+```bash
+# Terminal 1: Start Gazebo
+gz sim -v4 -r ~/swarm/worlds/multi_drone_6.sdf
+
+# Terminals 2-7: Start 6 SITL instances
+for i in {0..5}; do
+    sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON -I$i \
+        --out=udp:127.0.0.1:$((14540 + i)) --console --no-rebuild &
+done
+```
+
+**SITL UDP port scheme:** Port `14540 + instance_id`
+
+| Drone | Instance | UDP Port (pymavlink) |
+|-------|----------|---------------------|
+| Drone1 | -I0 | 14540 |
+| Drone2 | -I1 | 14541 |
+| Drone3 | -I2 | 14542 |
+| Drone4 | -I3 | 14543 |
+| Drone5 | -I4 | 14544 |
+| Drone6 | -I5 | 14545 |
+
+### Step 4: Connect with pymavlink
+
+```python
+from pymavlink import mavutil
+
+# Connect to each drone
+connections = []
+for i in range(6):
+    conn = mavutil.mavlink_connection(f'udpin:0.0.0.0:{14540 + i}')
+    conn.wait_heartbeat()
+    connections.append(conn)
+    print(f"Drone {i+1} connected")
+```
+
+### All-in-One Test Command
+
+The test runner handles all steps automatically:
+
+```bash
+python scripts/run_phase3_test.py --num-drones 6 --test formations
+```
+
+This will:
+1. Generate missing drone models (Drone4, Drone5, Drone6)
+2. Generate the world file if missing
+3. Start Gazebo
+4. Start 6 SITL instances
+5. Run the test
+6. Clean up all processes
+
+### Resource Requirements
+
+| Drones | Approx. RAM | CPU Cores |
+|--------|-------------|-----------|
+| 3 | 8 GB | 4 |
+| 6 | 12 GB | 6 |
+| 10 | 16 GB | 8 |
+| 15 | 24 GB | 12 |
+
+Tips for performance:
+- Use `--headless` for SITL when not debugging
+- Reduce Gazebo physics rate: `<real_time_factor>0.5</real_time_factor>`
+- Run Gazebo in server-only mode: `gz sim -s` (no GUI)
+
+---
+
 ## Development Phases
 
 ### Phase 1: Single Drone Foundation ✅
