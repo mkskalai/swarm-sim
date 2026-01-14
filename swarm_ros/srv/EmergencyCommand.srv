@@ -1,0 +1,26 @@
+# EmergencyCommand.srv - Emergency commands for individual drone or swarm
+# High-priority commands that override current actions
+
+# Request
+# Target drone (-1 for all drones)
+int8 drone_id
+
+# Command type
+uint8 CMD_HOVER = 0       # Stop and hover in place
+uint8 CMD_RTL = 1         # Return to launch
+uint8 CMD_LAND = 2        # Land immediately
+uint8 CMD_DISARM = 3      # Emergency disarm (DANGEROUS - drone will fall)
+uint8 CMD_RESUME = 4      # Resume previous mission/formation
+uint8 command
+
+# Optional: safe altitude for RTL (meters)
+float32 rtl_altitude
+
+---
+
+# Response
+bool success
+string message
+
+# Number of drones that acknowledged command
+uint8 drones_acknowledged

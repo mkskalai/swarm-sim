@@ -1,0 +1,32 @@
+# SetFormation.srv - Request swarm to fly a formation
+# Called by operator or mission coordinator
+
+# Request
+# Formation type (see FormationRole.msg for enum values)
+uint8 formation_type
+
+# Formation parameters
+float32 spacing          # Distance between drones (meters), default 5.0
+float32 altitude         # Formation altitude (meters), default 10.0
+float32 heading          # Formation heading (degrees), default 0.0
+
+# Duration to hold formation (seconds), 0 = indefinite
+float32 duration
+
+# Wait for drones to reach formation before returning
+bool wait_for_arrival
+
+# Arrival tolerance (meters), default 2.0
+float32 arrival_tolerance
+
+---
+
+# Response
+bool success
+string message
+
+# Time taken to reach formation (if wait_for_arrival was true)
+float32 arrival_time_seconds
+
+# Number of drones that reached position
+uint8 drones_in_position

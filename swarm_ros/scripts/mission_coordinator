@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Entry point for mission_coordinator node."""
+
+from swarm_ros.mission_coordinator import main
+
+if __name__ == "__main__":
+    main()

@@ -53,6 +53,12 @@ ROS2_SETUP="/opt/ros/jazzy/setup.bash"
 if [ -f "$ROS2_SETUP" ]; then
     echo "Sourcing ROS2 Jazzy..."
     source "$ROS2_SETUP"
+
+    # Source ROS2 workspace if it exists
+    if [ -f ~/ros2_ws/install/setup.bash ]; then
+        echo "Sourcing ROS2 workspace..."
+        source ~/ros2_ws/install/setup.bash
+    fi
 else
     echo "Note: ROS2 Jazzy not found (optional)"
 fi
@@ -76,14 +82,19 @@ echo "  Project root: ${PROJECT_ROOT}"
 echo ""
 echo "NOTE: If project path has spaces, use symlink: ln -s \"${PROJECT_ROOT}\" ~/swarm"
 echo ""
-echo "Quick start commands (use 3 terminals):"
+echo "Quick start commands:"
 echo ""
-echo "  # Terminal 1: Start Gazebo"
-echo "  cd ~/ardupilot_gazebo && gz sim -r ~/swarm/worlds/single_drone.sdf"
+echo "  # Multi-drone simulation (Terminal 1):"
+echo "  python scripts/run_phase3_test.py --num-drones 3 --skip-test"
 echo ""
-echo "  # Terminal 2: Start SITL (JSON frame + MAVSDK port)"
-echo "  cd ~/ardupilot/ArduCopter && sim_vehicle.py -v ArduCopter -f JSON --console --out=udp:127.0.0.1:14540"
+echo "  # ROS2 bridge (Terminal 2, after simulation ready):"
+echo "  ros2 launch swarm_ros simulation.launch.py num_drones:=3"
 echo ""
-echo "  # Terminal 3: Run test"
-echo "  source ~/venv-ardupilot/bin/activate && cd ~/swarm && python scripts/test_connection.py"
+echo "  # Monitor (Terminal 3):"
+echo "  ros2 topic echo /swarm/status"
+echo ""
+echo "  # Fly formation (Terminal 4):"
+echo "  ros2 service call /swarm/connect std_srvs/srv/Trigger"
+echo "  ros2 service call /swarm/takeoff_all std_srvs/srv/Trigger"
+echo "  ros2 service call /swarm/set_formation swarm_ros/srv/SetFormation '{formation_type: 1}'"
 echo ""

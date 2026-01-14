@@ -1,0 +1,28 @@
+# Swarm ROS2 Parameters
+# These can be loaded with: ros2 param load <node> <file>
+
+swarm_bridge:
+  ros__parameters:
+    num_drones: 3
+    base_port: 14540
+    auto_connect: true
+
+drone_node:
+  ros__parameters:
+    drone_id: 0
+    num_drones: 3
+    serial_port: "/dev/ttyACM0"
+    serial_baud: 115200
+    use_udp: false
+    udp_port: 14540
+
+mission_coordinator:
+  ros__parameters:
+    num_drones: 3
+
+# NeighborTracker configuration (embedded in DroneNode)
+neighbor_tracker:
+  stale_timeout: 3.0      # seconds before marking neighbor as stale
+  failed_timeout: 10.0    # seconds before marking neighbor as failed
+  collision_horizon: 5.0  # seconds to look ahead for collisions
+  safe_distance: 3.0      # meters - minimum safe distance between drones

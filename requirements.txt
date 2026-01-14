@@ -1,0 +1,19 @@
+# Drone Swarm Simulation Platform - Python Requirements
+# Install with: pip install -r requirements.txt
+#
+# Note: ROS2 packages are installed system-wide, not via pip.
+# This file contains packages for the swarm control layer.
+
+# Core dependencies
+pymavlink>=2.4.49       # MAVLink communication with ArduPilot SITL
+mavsdk>=3.10.0          # High-level MAVLink SDK (used in Phase 1)
+numpy>=2.0.0            # Numerical operations
+jinja2>=3.1.0           # World file templating
+
+# Testing
+pytest>=9.0.0           # Test framework
+pytest-asyncio>=1.0.0   # Async test support
+
+# Optional: Development tools
+# flake8>=7.0.0         # Linting
+# opencv-python>=4.10.0 # Vision (Phase 5)

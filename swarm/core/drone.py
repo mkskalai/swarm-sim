@@ -222,6 +222,38 @@ class Drone:
             if not await self.arm():
                 return False
 
+        # Wait for GPS fix before takeoff (required for GUIDED mode)
+        gps_timeout = 30.0  # seconds
+        gps_start = asyncio.get_event_loop().time()
+        gps_ok = False
+
+        try:
+            async for health in self._system.telemetry.health():
+                if health.is_global_position_ok:
+                    logger.info("GPS position OK, proceeding with takeoff")
+                    gps_ok = True
+                    break
+
+                elapsed = asyncio.get_event_loop().time() - gps_start
+                if elapsed > gps_timeout:
+                    logger.error(f"GPS timeout after {gps_timeout}s - health status: "
+                                f"gps={health.is_gyrometer_calibration_ok}, "
+                                f"accel={health.is_accelerometer_calibration_ok}, "
+                                f"mag={health.is_magnetometer_calibration_ok}, "
+                                f"local_pos={health.is_local_position_ok}, "
+                                f"global_pos={health.is_global_position_ok}, "
+                                f"home_pos={health.is_home_position_ok}")
+                    break
+
+                logger.info(f"Waiting for GPS... (elapsed: {elapsed:.1f}s)")
+                await asyncio.sleep(2)
+        except Exception as e:
+            logger.warning(f"Could not check GPS health: {e}")
+
+        if not gps_ok:
+            logger.error("GPS not available, cannot takeoff in GUIDED mode")
+            return False
+
         logger.info(f"Taking off to {altitude}m...")
         self._state = DroneState.TAKING_OFF
 

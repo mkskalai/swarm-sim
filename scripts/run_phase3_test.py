@@ -12,6 +12,7 @@ Usage:
     python scripts/run_phase3_test.py --num-drones 6    # 6 drones
     python scripts/run_phase3_test.py --test formations # specific test
     python scripts/run_phase3_test.py --skip-gazebo     # if Gazebo already running
+    python scripts/run_phase3_test.py --skip-test       # start sim only, no test
 
 Prerequisites:
     - ArduPilot installed at ~/ardupilot
@@ -360,6 +361,7 @@ Examples:
     python scripts/run_phase3_test.py --num-drones 6      # 6 drones
     python scripts/run_phase3_test.py --test formations   # formations only
     python scripts/run_phase3_test.py --skip-gazebo       # Gazebo already running
+    python scripts/run_phase3_test.py --skip-test         # start sim, wait for manual testing
 
 Note: Requires ardupilot_gazebo world with enough drones for your test.
 The default tutorial_multi_drone.sdf has 3 drones. For 6 drones, you may
@@ -406,6 +408,11 @@ need to create a custom world or use generate_world.py.
         default=5.0,
         help="Seconds between SITL instance launches (default: 5.0)",
     )
+    parser.add_argument(
+        "--skip-test",
+        action="store_true",
+        help="Skip running test, just start Gazebo/SITL and wait (for manual testing)",
+    )
 
     args = parser.parse_args()
 
@@ -439,14 +446,32 @@ need to create a custom world or use generate_world.py.
                 manager.shutdown()
                 return 1
 
-        # Run the test
-        exit_code = manager.run_test(
-            args.num_drones,
-            args.test,
-            args.base_port,
-        )
+        # Run the test or wait
+        if args.skip_test:
+            print(f"\n{'='*60}")
+            print("SIMULATION READY - Press Ctrl+C to shutdown")
+            print(f"{'='*60}\n")
+            print("Drones available at:")
+            for i in range(args.num_drones):
+                print(f"  Drone {i}: udpin:0.0.0.0:{args.base_port + i}")
+            print("\nTo launch ROS2 bridge (in separate terminal):")
+            print(f"  ros2 launch swarm_ros simulation.launch.py num_drones:={args.num_drones}")
+            print()
 
-        return exit_code
+            # Wait indefinitely until Ctrl+C
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                pass
+            return 0
+        else:
+            exit_code = manager.run_test(
+                args.num_drones,
+                args.test,
+                args.base_port,
+            )
+            return exit_code
 
     finally:
         manager.shutdown()

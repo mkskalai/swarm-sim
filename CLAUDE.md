@@ -647,14 +647,18 @@ Tips for performance:
 
 **Deliverable:** `swarm/coordination/` module
 
-### Phase 4: ROS2 Integration
+### Phase 4: ROS2 Integration ✅
 **Goal:** P2P communication layer
 
-- [ ] Create ROS2 workspace
-- [ ] Define custom messages (DroneState, SwarmCommand)
-- [ ] Implement neighbor discovery
-- [ ] Add local broadcast for obstacle/target sharing
-- [ ] Bridge Gazebo sensors to ROS2
+- [x] Create ROS2 workspace (`swarm_ros/` package)
+- [x] Define custom messages (DroneState, DroneIntent, FormationRole, SwarmStatus)
+- [x] Define services (SetFormation, EmergencyCommand)
+- [x] Implement neighbor discovery (NeighborTracker)
+- [x] Add local broadcast for P2P sharing (position, intent, formation role)
+- [x] Create SwarmBridge for simulation (bridges SwarmController to ROS2)
+- [x] Create DroneNode for hardware (per-drone controller)
+- [x] Create MissionCoordinator for GCS
+- [ ] Bridge Gazebo sensors to ROS2 (deferred to Phase 5)
 
 **Deliverable:** `swarm_ros/` - ROS2 package
 
@@ -1248,6 +1252,328 @@ python scripts/test_phase3.py --num-drones 3
 
 ---
 
+## Phase 4 Implementation Reference
+
+This section documents the Phase 4 implementation (ROS2 Integration).
+
+### Architecture: Hybrid Approach
+
+**Simulation mode:** SwarmBridge wraps existing SwarmController and exposes it via ROS2 topics/services. No changes to proven pymavlink coordination.
+
+**Hardware mode:** DroneNode runs on each drone's onboard computer with local pymavlink to flight controller. P2P communication via ROS2 topics.
+
+```
+Simulation:                          Hardware:
+┌─────────────┐                     ┌─────────────┐
+│ SwarmBridge │──ROS2 topics───►    │   GCS       │
+│  (wraps     │                     │ Mission     │
+│ SwarmCtrl)  │                     │ Coordinator │
+└──────┬──────┘                     └──────┬──────┘
+       │pymavlink                          │ROS2
+       ▼                                   ▼
+  SITL instances                    ┌──────────────┐
+                                    │  DroneNode   │◄──P2P──►NeighborNodes
+                                    │ +pymavlink   │
+                                    └──────┬───────┘
+                                           │serial
+                                           ▼
+                                    Flight Controller
+```
+
+### Package Structure: `swarm_ros/`
+
+```
+swarm_ros/
+├── package.xml                  # ament_cmake package manifest
+├── CMakeLists.txt               # Build configuration (message gen + Python)
+├── msg/
+│   ├── DroneState.msg           # Position, velocity, battery, health
+│   ├── DroneIntent.msg          # Target position, action type
+│   ├── FormationRole.msg        # Leader/follower role, offset
+│   └── SwarmStatus.msg          # Aggregated swarm status
+├── srv/
+│   ├── SetFormation.srv         # Request formation change
+│   └── EmergencyCommand.srv     # Emergency stop/RTL/land
+├── swarm_ros/
+│   ├── __init__.py
+│   ├── neighbor_tracker.py      # P2P neighbor discovery & collision avoidance
+│   ├── swarm_bridge.py          # Bridges SwarmController to ROS2 (simulation)
+│   ├── drone_node.py            # Per-drone controller (hardware)
+│   └── mission_coordinator.py   # GCS coordinator
+├── launch/
+│   ├── simulation.launch.py     # Launch SwarmBridge
+│   └── drone.launch.py          # Launch DroneNode
+├── config/
+│   └── swarm_params.yaml        # ROS2 parameters
+├── scripts/                     # Entry point executables
+└── test/
+    └── test_neighbor_tracker.py # Unit tests
+```
+
+### Custom Messages
+
+**DroneState.msg** (published @ 10Hz per drone):
+```
+uint8 drone_id
+float32[3] position_ned     # North, East, Down (meters)
+float32[3] velocity_ned     # m/s
+float32 yaw_deg
+uint8 state                 # DISCONNECTED=0, CONNECTED=1, ARMED=2, IN_FLIGHT=4, etc.
+uint8 battery_percent
+bool is_healthy, has_gps_lock, ekf_ok
+builtin_interfaces/Time stamp
+```
+
+**DroneIntent.msg** (published @ 4Hz):
+```
+uint8 drone_id
+float32[3] target_position_ned
+uint8 action_type           # HOVER=0, GOTO=1, ORBIT=2, TRACK=3, RTL=5, LAND=6
+uint16 action_id
+float32 eta_seconds
+```
+
+**FormationRole.msg** (published @ 4Hz):
+```
+uint8 drone_id
+uint16 formation_id
+uint8 role                  # UNASSIGNED=0, LEADER=1, FOLLOWER=2
+uint8 leader_id
+float32[3] offset_from_leader
+uint8 formation_type        # LINE=0, V=1, TRIANGLE=2, GRID=3, CIRCLE=4, DIAMOND=5
+```
+
+### Topics
+
+| Topic | Type | Rate | Description |
+|-------|------|------|-------------|
+| `/swarm/status` | SwarmStatus | 1Hz | Aggregated swarm status (from bridge or coordinator) |
+| `/drone_N/state` | DroneState | 10Hz | Per-drone position/health (P2P sharing) |
+| `/drone_N/intent` | DroneIntent | 4Hz | Per-drone intentions (P2P sharing) |
+| `/drone_N/formation_role` | FormationRole | 4Hz | Formation membership (P2P sharing) |
+| `/drone_N/formation_command` | FormationRole | on demand | Role assignment from coordinator |
+
+### Services
+
+| Service | Type | Description |
+|---------|------|-------------|
+| `/swarm/connect` | Trigger | Connect to drones (simulation only) |
+| `/swarm/set_formation` | SetFormation | Assign formation to swarm |
+| `/swarm/takeoff_all` | Trigger | Takeoff all drones |
+| `/swarm/land_all` | Trigger | Land all drones |
+| `/swarm/arm_all` | Trigger | Arm all drones |
+| `/swarm/emergency` | EmergencyCommand | Emergency commands (RTL, land, hover) |
+| `/drone_N/emergency` | EmergencyCommand | Per-drone emergency (hardware) |
+
+### Key Commands
+
+```bash
+# Build the package (from ROS2 workspace)
+cd ~/ros2_ws  # or wherever your workspace is
+ln -s /path/to/swarm/swarm_ros src/swarm_ros
+colcon build --packages-select swarm_ros
+source install/setup.bash
+
+# Simulation mode (requires running Gazebo + SITL)
+# Terminal 1: Start simulation
+python scripts/run_phase3_test.py --num-drones 3 --skip-test
+
+# Terminal 2: Start ROS2 bridge
+ros2 launch swarm_ros simulation.launch.py num_drones:=3
+
+# Terminal 3: Monitor
+ros2 topic echo /swarm/status
+ros2 topic echo /drone_0/state
+
+# Terminal 4: Command formation
+ros2 service call /swarm/set_formation swarm_ros/srv/SetFormation \
+  "{formation_type: 1, spacing: 5.0, altitude: 10.0, duration: 30.0}"
+
+# Hardware mode (on each drone's onboard computer)
+ros2 launch swarm_ros drone.launch.py \
+  drone_id:=0 num_drones:=6 serial_port:=/dev/ttyACM0
+
+# Hardware mode with SITL (for testing)
+ros2 launch swarm_ros drone.launch.py \
+  drone_id:=0 num_drones:=3 use_udp:=true udp_port:=14540
+```
+
+### NeighborTracker
+
+Core module for P2P awareness and collision avoidance:
+
+```python
+from swarm_ros import NeighborTracker, NeighborTrackerConfig
+
+# On DroneNode initialization
+config = NeighborTrackerConfig(
+    stale_timeout=3.0,      # Mark neighbor stale after 3s
+    failed_timeout=10.0,    # Mark neighbor failed after 10s
+    collision_horizon=5.0,  # Look ahead 5s for collisions
+    safe_distance=3.0,      # Minimum safe distance (meters)
+)
+tracker = NeighborTracker(node, own_drone_id=0, num_drones=6, config=config)
+
+# Register callbacks
+tracker.on_neighbor_joined(lambda did: print(f"Neighbor {did} joined"))
+tracker.on_neighbor_lost(lambda did: print(f"Neighbor {did} lost"))
+tracker.on_collision_warning(lambda w: print(f"Collision with {w.other_drone_id}!"))
+
+tracker.start()  # Start subscriptions
+
+# In control loop
+collision = tracker.predict_collision(own_position, own_velocity)
+if collision and collision.time_to_collision < 2.0:
+    # Execute avoidance maneuver using collision.avoidance_vector
+    pass
+```
+
+### Code Reuse
+
+| Existing Module | Reuse in swarm_ros |
+|-----------------|-------------------|
+| `formations.py` | 100% - Direct import for position calculations |
+| `missions.py` | 80% - Import Waypoint, MissionPlanner |
+| `leader_follower.py` | 60% - Logic distributed across DroneNodes |
+| `failure_handler.py` | 70% - NeighborTracker handles peer failures |
+| `swarm_controller.py` | Via SwarmBridge for simulation |
+
+### Phase 4 Bug Fixes
+
+This section documents critical fixes made during Phase 4 development.
+
+#### Fix 1: Python Module Installation Path (CMakeLists.txt)
+
+**Problem:** After `colcon build`, ROS2 couldn't find `swarm_ros` Python modules:
+```
+ModuleNotFoundError: No module named 'swarm_ros.swarm_bridge'
+```
+
+**Root Cause:** The original CMakeLists.txt installed Python modules to `lib/python3/dist-packages/`, but ROS2's rosidl generates message bindings to `lib/python3.12/site-packages/`. Python only searches one path.
+
+**Fix:** Use versioned Python path in CMakeLists.txt:
+
+```cmake
+# Before (WRONG)
+install(DIRECTORY
+  ${PROJECT_NAME}/
+  DESTINATION lib/python3/dist-packages/${PROJECT_NAME}
+)
+
+# After (CORRECT)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+install(DIRECTORY
+  ${PROJECT_NAME}/
+  DESTINATION lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+)
+```
+
+The `Python3_VERSION_MAJOR` and `Python3_VERSION_MINOR` variables come from `find_package(Python3)` and ensure the path matches the system Python version (3.12 on Ubuntu 24.04).
+
+#### Fix 2: PYTHONPATH for Main Swarm Package (Launch File)
+
+**Problem:** SwarmBridge couldn't import the main `swarm` package:
+```
+ModuleNotFoundError: No module named 'swarm'
+```
+
+**Root Cause:** The `swarm` Python package is not installed via pip or ROS2 - it's a local development package. ROS2 launch doesn't inherit the full environment.
+
+**Fix:** Set PYTHONPATH in the launch file:
+
+```python
+# In simulation.launch.py
+import os
+from pathlib import Path
+
+SWARM_PROJECT_ROOT = str(Path.home() / "Desktop" / "python projects" / "claude" / "swarm")
+
+def generate_launch_description():
+    # ... other setup ...
+
+    current_pythonpath = os.environ.get("PYTHONPATH", "")
+    new_pythonpath = f"{SWARM_PROJECT_ROOT}:{current_pythonpath}" if current_pythonpath else SWARM_PROJECT_ROOT
+
+    set_pythonpath = SetEnvironmentVariable(
+        name="PYTHONPATH",
+        value=new_pythonpath,
+    )
+
+    return LaunchDescription([
+        # ... arguments ...
+        set_pythonpath,  # Must come before node
+        swarm_bridge_node,
+    ])
+```
+
+#### Fix 3: Formation Type Integer-to-Enum Mapping
+
+**Problem:** ROS2 service call failed with:
+```
+Invalid formation type: 1. Valid: line, v, triangle...
+```
+
+**Root Cause:** `SetFormation.srv` uses integer `formation_type` (0-5), but the Python `FormationType` enum uses string values ("line", "v_formation", etc.). Direct lookup failed.
+
+**Fix:** Add mapping dictionary in SwarmBridge:
+
+```python
+def _handle_set_formation(self, request, response):
+    # Map integer formation type to FormationType enum
+    formation_map = {
+        0: self._FormationType.LINE,
+        1: self._FormationType.V_FORMATION,
+        2: self._FormationType.TRIANGLE,
+        3: self._FormationType.GRID,
+        4: self._FormationType.CIRCLE,
+        5: self._FormationType.DIAMOND,
+    }
+
+    if request.formation_type not in formation_map:
+        response.success = False
+        response.message = f"Invalid formation type: {request.formation_type}. Valid: 0=LINE, 1=V, 2=TRIANGLE, 3=GRID, 4=CIRCLE, 5=DIAMOND"
+        return response
+
+    formation_type = formation_map[request.formation_type]
+    # ... rest of handler
+```
+
+#### Fix 4: Populate drone_states Array in SwarmStatus
+
+**Problem:** `/swarm/status` topic showed empty `drone_states: []` array.
+
+**Root Cause:** `_publish_swarm_status()` was not populating the `drone_states` array field.
+
+**Fix:** Build drone state messages in the publish function:
+
+```python
+def _publish_swarm_status(self) -> None:
+    msg = self._SwarmStatus()
+    # ... populate counters ...
+
+    # Build drone_states array
+    now = self.get_clock().now().to_msg()
+    for drone_id in range(self.num_drones):
+        drone_msg = self._DroneState()
+        drone_msg.drone_id = drone_id
+
+        if drone_id in positions:
+            pos = positions[drone_id]
+            drone_msg.position_ned = [pos[0], pos[1], pos[2]]
+        else:
+            drone_msg.position_ned = [0.0, 0.0, 0.0]
+
+        # ... populate other fields ...
+        drone_msg.stamp = now
+        msg.drone_states.append(drone_msg)  # Add to array
+
+    self.status_pub.publish(msg)
+```
+
+---
+
 ## Decisions Log
 
 | Date | Decision | Rationale |
@@ -1258,3 +1584,5 @@ python scripts/test_phase3.py --num-drones 3
 | 2025-01-12 | 6-15 drone target | Meaningful swarm behaviors without excessive resources |
 | 2025-01-14 | pymavlink over MAVSDK | MAVSDK routes by sysid causing multi-drone issues; pymavlink uses port isolation |
 | 2025-01-14 | Add fdm_port_out to models | Required for multi-drone despite being "deprecated" in plugin code |
+| 2026-01-14 | Hybrid ROS2 architecture | SwarmBridge for simulation (preserves working code), DroneNode for hardware (true P2P) |
+| 2026-01-14 | P2P data: position+intent+formation | Sufficient for coordination without bandwidth overhead of full perception sharing |
