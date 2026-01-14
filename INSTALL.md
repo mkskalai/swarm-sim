@@ -244,7 +244,7 @@ echo 'source ~/setup_swarm_env.sh' >> ~/.bashrc
 
 ```bash
 cd ~
-git clone <repository-url> swarm
+git clone https://github.com/mkskalai/swarm-sim.git swarm
 cd ~/swarm
 
 # Activate environment
