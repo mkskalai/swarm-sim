@@ -197,13 +197,13 @@ source ~/venv-ardupilot/bin/activate
 # Source ROS2
 source /opt/ros/jazzy/setup.bash
 
-# ArduPilot Gazebo plugin paths
-export GZ_SIM_SYSTEM_PLUGIN_PATH=$HOME/ardupilot_gazebo/build:${GZ_SIM_SYSTEM_PLUGIN_PATH}
-export GZ_SIM_RESOURCE_PATH=$HOME/ardupilot_gazebo/models:$HOME/ardupilot_gazebo/worlds:${GZ_SIM_RESOURCE_PATH}
-
 # Swarm project path (adjust if you cloned elsewhere)
 export SWARM_PROJECT_ROOT="$HOME/swarm"
 export PYTHONPATH="${SWARM_PROJECT_ROOT}:${PYTHONPATH}"
+
+# Gazebo resource paths - include both project models and ardupilot_gazebo
+export GZ_SIM_SYSTEM_PLUGIN_PATH=$HOME/ardupilot_gazebo/build:${GZ_SIM_SYSTEM_PLUGIN_PATH}
+export GZ_SIM_RESOURCE_PATH=${SWARM_PROJECT_ROOT}/models:$HOME/ardupilot_gazebo/models:$HOME/ardupilot_gazebo/worlds:${GZ_SIM_RESOURCE_PATH}
 
 # NVIDIA GPU support (for hybrid Intel/NVIDIA laptops)
 if [ -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json ]; then
@@ -396,6 +396,83 @@ ros2 service call /swarm/set_formation swarm_ros/srv/SetFormation \
 
 ---
 
+## Perception Pipeline (Phase 5)
+
+The perception system adds YOLOv11-based object detection to the drone swarm.
+
+### Prerequisites
+
+```bash
+# Install vision dependencies (large packages, ~2GB with PyTorch)
+pip install ultralytics opencv-python
+
+# Install ROS2 bridge packages
+sudo apt install -y ros-jazzy-cv-bridge ros-jazzy-ros-gz-bridge ros-jazzy-ros-gz-image
+
+# Rebuild ROS2 workspace to include perception messages
+cd ~/ros2_ws
+colcon build --packages-select swarm_ros
+source install/setup.bash
+```
+
+### Test Detection Standalone
+
+```bash
+# Test YOLOv11 detector without simulation
+source ~/setup_swarm_env.sh
+cd ~/swarm
+python scripts/test_phase5.py --detector-only
+```
+
+### Run Perception with Simulation
+
+```bash
+# Terminal 1: Start Gazebo with perception test world
+source ~/setup_swarm_env.sh
+cd ~/swarm
+gz sim -r worlds/perception_test.sdf
+
+# Terminal 2: Start SITL instances
+python scripts/launch_sitl.py --num-instances 3
+
+# Terminal 3: Start ROS2 bridge with cameras
+source ~/setup_swarm_env.sh
+ros2 launch swarm_ros simulation.launch.py num_drones:=3 enable_cameras:=true
+
+# Terminal 4: Start perception nodes
+source ~/setup_swarm_env.sh
+ros2 launch swarm_ros perception.launch.py num_drones:=3
+
+# Terminal 5: Monitor detections
+source ~/setup_swarm_env.sh
+ros2 topic echo /drone_0/detections
+```
+
+### Perception Topics
+
+| Topic | Type | Description |
+|-------|------|-------------|
+| `/drone_N/camera/image` | sensor_msgs/Image | Camera feed from Gazebo |
+| `/drone_N/detections` | DetectionArray | Detected objects with bounding boxes |
+
+### Detection Classes
+
+The system detects people and vehicles:
+- Person (COCO class 0)
+- Car (COCO class 2)
+- Motorcycle (COCO class 3)
+- Bus (COCO class 5)
+- Truck (COCO class 7)
+
+### Performance Notes
+
+- GPU inference: ~10-20ms per frame (RTX series)
+- CPU fallback: ~100-200ms per frame
+- Camera resolution: 640x480 @ 15Hz
+- Model: YOLOv11n (nano) by default
+
+---
+
 ## Common Issues
 
 ### Issue: "ModuleNotFoundError: No module named 'swarm'"
@@ -470,10 +547,10 @@ After installation, your directory structure should look like:
 ```
 ~/
 ├── ardupilot/                    # ArduPilot source (Copter-4.5)
-├── ardupilot_gazebo/             # Gazebo plugin
+├── ardupilot_gazebo/             # Gazebo plugin (DO NOT MODIFY)
 │   ├── build/                    # Compiled plugin
-│   ├── models/                   # Drone models (Drone1, Drone2, etc.)
-│   └── worlds/                   # World files
+│   ├── models/                   # Base models (iris_with_standoffs)
+│   └── worlds/                   # Example world files
 ├── venv-ardupilot/               # Python virtual environment
 ├── ros2_ws/                      # ROS2 workspace
 │   ├── src/
@@ -482,11 +559,16 @@ After installation, your directory structure should look like:
 │   └── install/
 ├── swarm/                        # This project
 │   ├── swarm/                    # Python package
+│   │   └── perception/           # Vision processing (Phase 5)
 │   ├── swarm_ros/                # ROS2 package
+│   ├── models/                   # Drone models (Drone1, Drone2, etc.)
+│   │   └── DroneTemplate/        # Base template with camera
 │   ├── scripts/                  # Test and utility scripts
 │   └── worlds/                   # Generated world files
 └── setup_swarm_env.sh            # Environment setup script
 ```
+
+**Important:** All drone models live in `~/swarm/models/`, NOT in `ardupilot_gazebo/`. The DroneTemplate includes an RGB camera sensor and is used to generate Drone1, Drone2, etc.
 
 ---
 

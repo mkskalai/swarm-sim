@@ -57,7 +57,7 @@ class SITLLauncher:
         self,
         num_instances: int = 3,
         ardupilot_path: Optional[Path] = None,
-        base_sitl_port: int = 5760,
+        base_udp_port: int = 14540,
         base_fdm_port: int = 9002,
     ):
         """Initialize SITL launcher.
@@ -65,14 +65,14 @@ class SITLLauncher:
         Args:
             num_instances: Number of SITL instances to manage.
             ardupilot_path: Path to ArduPilot repository. Defaults to ~/ardupilot.
-            base_sitl_port: Base SITL TCP port for MAVSDK connections.
+            base_udp_port: Base UDP port for MAVProxy forwarding (pymavlink).
             base_fdm_port: Base port for FDM (JSON) interface.
         """
         self.num_instances = num_instances
         self.ardupilot_path = ardupilot_path or Path.home() / "ardupilot"
+        self.base_udp_port = base_udp_port
         self.config = FleetConfig(
             num_drones=num_instances,
-            base_sitl_port=base_sitl_port,
             base_fdm_port=base_fdm_port,
         )
         self._processes: list[SITLProcess] = []
@@ -104,19 +104,19 @@ class SITLLauncher:
 
     def launch_all(
         self,
-        headless: bool = True,
+        headless: bool = False,
         speedup: float = 1.0,
-        startup_delay: float = 2.0,
+        startup_delay: float = 5.0,
         wait_ready: bool = True,
         ready_timeout: float = 60.0,
     ) -> bool:
-        """Launch all SITL instances.
+        """Launch all SITL instances with MAVProxy UDP forwarding.
 
         Args:
-            headless: Run without MAVProxy console (recommended for automation).
+            headless: Run without MAVProxy console (not recommended - breaks UDP).
             speedup: Simulation speed multiplier.
             startup_delay: Seconds to wait between instance launches.
-            wait_ready: Wait for each instance's TCP port to be listening.
+            wait_ready: Wait for each instance's UDP port to be available.
             ready_timeout: Seconds to wait for each instance to be ready.
 
         Returns:
@@ -130,38 +130,33 @@ class SITLLauncher:
 
         print(f"Launching {self.num_instances} SITL instances...")
         print(f"ArduPilot path: {self.ardupilot_path}")
-        print(f"Headless: {headless}, Speedup: {speedup}x")
+        print(f"Speedup: {speedup}x")
         print()
 
+        # Create log directory
+        log_dir = PROJECT_ROOT / "logs"
+        log_dir.mkdir(exist_ok=True)
+
         for i in range(self.num_instances):
-            mavsdk_port = self.config.get_mavsdk_port(i)
+            udp_port = self.base_udp_port + i  # 14540, 14541, 14542, ...
             fdm_port = self.config.get_fdm_port(i)
 
-            # Build command - run arducopter directly with JSON model
-            # Note: -I sets instance number, which determines:
-            #   - FDM port for Gazebo: 9002 + instance*10
-            #   - Native SITL MAVLink TCP port: 5760 + instance*10
-            arducopter_binary = self.ardupilot_path / "build" / "sitl" / "bin" / "arducopter"
-            autotest_dir = self.ardupilot_path / "Tools" / "autotest"
-
+            # Use sim_vehicle.py with MAVProxy for UDP forwarding
+            # This spawns xterm consoles and forwards MAVLink to UDP ports
             cmd = [
-                str(arducopter_binary),
-                "-S",
+                "sim_vehicle.py",
+                "-v", "ArduCopter",
+                "-f", "gazebo-iris",
                 "--model", "JSON",
-                "--speedup", str(int(speedup)),
-                "--defaults", f"{autotest_dir}/default_params/copter.parm,{autotest_dir}/default_params/gazebo-iris.parm",
-                "--sim-address", "127.0.0.1",
                 f"-I{i}",
+                f"--out=udp:127.0.0.1:{udp_port}",
+                "--console",
+                "--no-rebuild",
             ]
 
-            sitl_port = 5760 + (i * 10)  # SITL native TCP port
-            print(f"[Instance {i}] SITL TCP: {sitl_port}, FDM port: {fdm_port}")
+            print(f"[Instance {i}] UDP port: {udp_port}, FDM port: {fdm_port}")
 
-            # Launch process
-            # Note: sim_vehicle.py spawns xterm windows for each SITL instance.
-            # Use log files to capture output for debugging.
-            log_dir = PROJECT_ROOT / "logs"
-            log_dir.mkdir(exist_ok=True)
+            # Log files for debugging
             stdout_log = open(log_dir / f"sitl_{i}_stdout.log", "w")
             stderr_log = open(log_dir / f"sitl_{i}_stderr.log", "w")
 
@@ -178,7 +173,7 @@ class SITLLauncher:
                 self._processes.append(SITLProcess(
                     instance_id=i,
                     process=proc,
-                    mavsdk_port=mavsdk_port,
+                    mavsdk_port=udp_port,
                     fdm_port=fdm_port,
                     pid=proc.pid,
                 ))
@@ -190,25 +185,20 @@ class SITLLauncher:
                 self.shutdown_all()
                 return False
 
-            # Wait for SITL to be ready (TCP port listening)
-            if wait_ready:
-                print(f"[Instance {i}] Waiting for TCP port {sitl_port}...", end=" ", flush=True)
-                if self._wait_for_port(sitl_port, timeout=ready_timeout):
-                    print("Ready!")
-                else:
-                    print("TIMEOUT!")
-                    print(f"[Instance {i}] Failed to start within {ready_timeout}s")
-                    self.shutdown_all()
-                    return False
-            # Delay between launches to reduce port conflicts
-            elif i < self.num_instances - 1:
+            # Wait between launches - sim_vehicle.py needs time to start
+            if i < self.num_instances - 1:
+                print(f"[Instance {i}] Waiting {startup_delay}s before next instance...")
                 time.sleep(startup_delay)
 
+        # Wait for all instances to be ready
+        if wait_ready:
+            print("\nWaiting for all instances to be ready...")
+            time.sleep(10)  # Give MAVProxy time to initialize
+
         print(f"\nAll {self.num_instances} instances launched!")
-        print("\nTo connect MAVSDK (headless mode uses TCP):")
+        print("\nUDP ports for SwarmBridge/pymavlink:")
         for sitl in self._processes:
-            sitl_port = 5760 + (sitl.instance_id * 10)
-            print(f"  Drone {sitl.instance_id}: tcpout://127.0.0.1:{sitl_port}")
+            print(f"  Drone {sitl.instance_id}: udpin://0.0.0.0:{sitl.mavsdk_port}")
 
         return True
 
@@ -239,16 +229,17 @@ class SITLLauncher:
                 except (ProcessLookupError, PermissionError):
                     pass
 
-        # Kill actual SITL processes (arducopter binaries spawned by sim_vehicle.py)
-        print("Stopping ArduCopter processes...")
-        try:
-            subprocess.run(
-                ["pkill", "-f", "arducopter"],
-                capture_output=True,
-                timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+        # Kill all related processes spawned by sim_vehicle.py
+        print("Stopping ArduCopter/MAVProxy processes...")
+        for proc_name in ["arducopter", "mavproxy.py", "MAVProxy"]:
+            try:
+                subprocess.run(
+                    ["pkill", "-f", proc_name],
+                    capture_output=True,
+                    timeout=5,
+                )
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
 
         self._processes.clear()
         print("All instances shut down")
@@ -295,16 +286,19 @@ class SITLLauncher:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Launch multiple ArduPilot SITL instances",
+        description="Launch multiple ArduPilot SITL instances with MAVProxy UDP forwarding",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
     python scripts/launch_sitl.py --num-instances 3
-    python scripts/launch_sitl.py -n 3 --headless --speedup 2.0
+    python scripts/launch_sitl.py -n 6 --startup-delay 8
 
 Before running, ensure Gazebo is started:
-    cd ~/ardupilot_gazebo
-    gz sim -r ~/swarm/worlds/multi_drone_3.sdf
+    source scripts/setup_env.sh
+    gz sim -r worlds/perception_test.sdf
+
+This will spawn MAVProxy console windows (xterm) for each SITL instance,
+forwarding MAVLink to UDP ports 14540, 14541, 14542, etc.
 
 Press Ctrl+C to shut down all instances.
         """,
@@ -314,18 +308,6 @@ Press Ctrl+C to shut down all instances.
         type=int,
         default=3,
         help="Number of SITL instances (default: 3)",
-    )
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        default=True,
-        help="Run without MAVProxy console (default: True)",
-    )
-    parser.add_argument(
-        "--no-headless",
-        action="store_false",
-        dest="headless",
-        help="Run with MAVProxy console",
     )
     parser.add_argument(
         "--speedup",
@@ -341,8 +323,8 @@ Press Ctrl+C to shut down all instances.
     parser.add_argument(
         "--startup-delay",
         type=float,
-        default=2.0,
-        help="Seconds between instance launches (default: 2.0)",
+        default=5.0,
+        help="Seconds between instance launches (default: 5.0)",
     )
 
     args = parser.parse_args()
@@ -365,7 +347,6 @@ Press Ctrl+C to shut down all instances.
 
     try:
         success = launcher.launch_all(
-            headless=args.headless,
             speedup=args.speedup,
             startup_delay=args.startup_delay,
         )

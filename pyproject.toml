@@ -26,7 +26,7 @@ classifiers = [
 
 dependencies = [
     "mavsdk>=2.0.0",
-    "numpy>=1.24.0",
+    "numpy>=1.24.0,<2",  # Pinned <2 for ROS2 Jazzy cv_bridge compatibility
     "jinja2>=3.1.0",
 ]
 
@@ -39,7 +39,8 @@ dev = [
     "mypy>=1.0.0",
 ]
 vision = [
-    "opencv-python>=4.8.0",
+    "opencv-python>=4.8.0,<4.11",  # Pinned <4.11 for numpy<2 compatibility
+    "ultralytics>=8.0.0",
 ]
 
 [project.scripts]

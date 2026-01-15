@@ -389,6 +389,120 @@ proc = subprocess.Popen(
 
 Check logs at `logs/sitl_*_stdout.log` and `logs/sitl_*_stderr.log` when debugging SITL startup issues.
 
+### Challenge 14: Camera Sensors with Nested Model Includes
+
+**Problem:** Camera sensors defined in a model that uses `<include>` for a base model don't publish images.
+
+**Symptoms:**
+```bash
+gz topic -i -t /world/.../camera/image
+# Shows: "No publishers on topic"
+```
+
+Gazebo logs show camera initialization:
+```
+[Dbg] [CameraSensor.cc:405] Camera images for [Drone1::camera_link::rgb_camera] advertised on [camera]
+```
+
+But `gz topic -l` shows the topic exists with zero publishers.
+
+**Root Cause:**
+
+When using nested model includes like this:
+```xml
+<model name="Drone1">
+  <include>
+    <uri>model://iris_with_standoffs</uri>
+  </include>
+
+  <link name='camera_link'>
+    <pose relative_to='iris_with_standoffs::base_link'>...</pose>
+    <sensor name="rgb_camera" type="camera">...</sensor>
+  </link>
+
+  <joint name='camera_joint' type='fixed'>
+    <parent>iris_with_standoffs::base_link</parent>
+    <child>camera_link</child>
+  </joint>
+</model>
+```
+
+The joint **silently fails** because Gazebo doesn't support joints that reference links inside `<include>` models. The camera_link ends up detached (stuck at world origin), and detached camera sensors won't publish.
+
+You can verify this in the scene graph:
+```bash
+gz service -s /world/WORLDNAME/scene/graph --reqtype gz.msgs.Empty --reptype gz.msgs.StringMsg --timeout 3000 --req ''
+```
+
+If the camera_link is a direct child of the world instead of the drone model, the joint failed.
+
+**Solution:** Create standalone models without nested includes. Copy the full content of the base model and integrate the camera directly:
+
+```xml
+<model name="Drone1">
+  <!-- DON'T use <include> - copy all links directly -->
+  <link name="base_link">
+    <!-- ... base model content ... -->
+  </link>
+
+  <link name="imu_link">...</link>
+  <link name="rotor_0">...</link>
+  <!-- ... other links ... -->
+
+  <!-- Camera link - now at same level as other links -->
+  <link name='camera_link'>
+    <pose relative_to='base_link'>0.1 0 -0.05 0 0.26 0</pose>
+    <sensor name="rgb_camera" type="camera">
+      <always_on>1</always_on>
+      <update_rate>15</update_rate>
+      <topic>drone_0/camera</topic>  <!-- Use unique topic name -->
+      ...
+    </sensor>
+  </link>
+
+  <!-- Joint now references same-level links -->
+  <joint name='camera_joint' type='fixed'>
+    <parent>base_link</parent>  <!-- No namespace prefix needed -->
+    <child>camera_link</child>
+  </joint>
+
+  <!-- All plugins (ArduPilot, lift-drag, etc.) -->
+  ...
+</model>
+```
+
+**Additional Fix - Topic Name Collision:**
+
+When multiple drones use `<topic>camera</topic>`, all cameras publish to the same global `/camera` topic (visible as 3 publishers on one topic). Give each camera a unique topic:
+
+```xml
+<!-- Drone1 -->
+<topic>drone_0/camera</topic>
+
+<!-- Drone2 -->
+<topic>drone_1/camera</topic>
+```
+
+**Verification:**
+```bash
+# Check each drone publishes to its own topic
+gz topic -i -t /drone_0/camera
+# Should show: "Publishers [Address, Message Type]: tcp://..., gz.msgs.Image"
+
+# Check ROS2 bridge receives images
+ros2 topic hz /drone_0/camera/image
+# Should show: ~15 Hz
+```
+
+**Why This Matters:**
+
+This issue appears whenever you try to extend an existing Gazebo model with additional sensors. The `<include>` approach seems logical for code reuse, but Gazebo's joint system doesn't support cross-namespace connections. This has come up multiple times in this project:
+
+1. Phase 5 initial camera integration (this fix)
+2. Future sensor additions will hit the same issue
+
+**Best Practice:** For models that need custom sensors, create standalone model files rather than using `<include>` with external links/joints.
+
 ---
 
 ## Phase 2 Multi-Drone: SOLVED
@@ -658,20 +772,29 @@ Tips for performance:
 - [x] Create SwarmBridge for simulation (bridges SwarmController to ROS2)
 - [x] Create DroneNode for hardware (per-drone controller)
 - [x] Create MissionCoordinator for GCS
-- [ ] Bridge Gazebo sensors to ROS2 (deferred to Phase 5)
+- [x] Bridge Gazebo sensors to ROS2
 
 **Deliverable:** `swarm_ros/` - ROS2 package
 
-### Phase 5: Perception Pipeline
+### Phase 5: Perception Pipeline ✅
 **Goal:** Camera-based awareness
 
-- [ ] RGB camera configuration in Gazebo
-- [ ] Image processing node (OpenCV)
-- [ ] Basic object detection (YOLO or similar)
-- [ ] Target tracking across frames
-- [ ] Share detections with swarm
+- [x] RGB camera configuration in Gazebo
+- [x] Fix nested model include issue (Challenge 14)
+- [x] Image processing node (OpenCV)
+- [x] Basic object detection (YOLOv11)
+- [x] Target tracking across frames
+- [x] Share detections with swarm
+- [x] World with objects and tests
+- [x] ROS2 camera bridge integration
 
-**Deliverable:** `swarm/perception/` - Vision processing
+**Deliverable:** `swarm/perception/` - Vision processing, `swarm_ros/perception_node.py`
+
+**Key Fixes Applied:**
+- Rebuilt Drone1/2/3 as standalone models (no nested `<include>`)
+- Unique camera topics per drone (`drone_0/camera`, `drone_1/camera`, etc.)
+- Updated launch file to bridge correct Gazebo topics
+- Cameras publish 640x480 RGB images @ ~15 Hz
 
 ### Phase 6: GPS-Denied Navigation
 **Goal:** Navigate without GPS
@@ -1574,6 +1697,173 @@ def _publish_swarm_status(self) -> None:
 
 ---
 
+## Phase 5 Implementation Reference
+
+This section documents the Phase 5 implementation (Perception Pipeline).
+
+### Architecture Overview
+
+```
+Gazebo Camera → ros_gz_bridge → /drone_N/camera/image
+                                        ↓
+                               PerceptionNode (YOLO + Tracker)
+                                        ↓
+                               /drone_N/detections
+                                        ↓
+                    ┌───────────────────┼───────────────────┐
+                    ↓                   ↓                   ↓
+            DetectionTracker    DetectionTracker    DetectionTracker
+              (Drone 0)           (Drone 1)           (Drone 2)
+```
+
+Each drone:
+1. Captures camera frames from Gazebo via ros_gz_bridge
+2. Runs YOLOv11 detection locally (GPU with CPU fallback)
+3. Tracks objects across frames using IoU-based tracker
+4. Publishes detections to ROS2 `/drone_N/detections`
+5. Subscribes to peer detections via DetectionTracker
+
+### Camera Configuration
+
+**Model:** `~/ardupilot_gazebo/models/iris_with_standoffs/model.sdf`
+
+Camera link added after imu_joint (line 179):
+- Position: Front-center, 15° pitch down
+- Resolution: 640x480 @ 15Hz
+- FOV: 80° horizontal
+- Topic: `camera` (full path varies by world/model)
+
+### ROS2 Messages
+
+**Detection.msg:**
+```
+uint8 drone_id
+uint32 track_id           # From tracker (0 = untracked)
+uint8 class_id            # COCO class (0=person, 2=car, etc.)
+string class_name
+float32 confidence
+uint16 bbox_x, bbox_y, bbox_width, bbox_height
+float32[3] estimated_position_ned  # NaN if unknown
+builtin_interfaces/Time stamp
+```
+
+**DetectionArray.msg:**
+```
+uint8 drone_id
+uint32 frame_seq
+float32[3] drone_position_ned
+float32 inference_time_ms
+Detection[] detections
+builtin_interfaces/Time stamp
+```
+
+### Perception Module: `swarm/perception/`
+
+| File | Description |
+|------|-------------|
+| `detector.py` | YOLOv11 wrapper with GPU/CPU fallback |
+| `tracker.py` | IoU-based multi-object tracker |
+| `camera.py` | Gazebo camera utilities (existing) |
+
+**YOLODetector:**
+```python
+from swarm.perception import YOLODetector, DetectorConfig
+
+config = DetectorConfig(
+    model_name="yolo11n.pt",
+    confidence_threshold=0.4,
+    use_gpu=True,
+)
+detector = YOLODetector(config)
+detector.initialize()
+
+detections, inference_ms = detector.detect(image)
+```
+
+**SimpleTracker:**
+```python
+from swarm.perception import SimpleTracker
+
+tracker = SimpleTracker()
+tracks = tracker.update(detections)  # Returns confirmed tracks with IDs
+```
+
+### ROS2 Nodes: `swarm_ros/swarm_ros/`
+
+| File | Description |
+|------|-------------|
+| `perception_node.py` | Per-drone perception node (YOLO + tracker) |
+| `detection_tracker.py` | P2P detection cache (like NeighborTracker) |
+
+**Topics Published:**
+- `/drone_N/detections` (DetectionArray) - Detection results
+
+**Topics Subscribed:**
+- `/drone_N/camera/image` (sensor_msgs/Image) - Camera feed
+- `/drone_N/state` (DroneState) - Drone position for context
+
+### Launch Files
+
+**Perception nodes:**
+```bash
+ros2 launch swarm_ros perception.launch.py num_drones:=3 use_gpu:=true
+```
+
+**Simulation with cameras:**
+```bash
+ros2 launch swarm_ros simulation.launch.py num_drones:=3 enable_cameras:=true
+```
+
+### Test World
+
+**File:** `worlds/perception_test.sdf`
+
+Contains:
+- 3 drones (Drone1, Drone2, Drone3)
+- 3 person models at various positions
+- 2 car models (blue, red)
+- 1 truck model
+- 1 building for reference
+
+### Quick Test
+
+```bash
+# Test detector/tracker standalone (no simulation)
+python scripts/test_phase5.py --detector-only
+
+# Full integration test
+python scripts/test_phase5.py --num-drones 3
+```
+
+### Dependencies
+
+```bash
+# Python packages
+pip install ultralytics opencv-python
+
+# ROS2 packages
+sudo apt install ros-jazzy-cv-bridge ros-jazzy-ros-gz-bridge ros-jazzy-ros-gz-image
+```
+
+### Camera Topic Paths
+
+| Drone | Gazebo Topic | ROS2 Topic (after bridge) |
+|-------|--------------|---------------------------|
+| Drone1 | `/world/perception_test_world/model/Drone1/link/camera_link/sensor/rgb_camera/image` | `/drone_0/camera/image` |
+| Drone2 | `/world/perception_test_world/model/Drone2/link/camera_link/sensor/rgb_camera/image` | `/drone_1/camera/image` |
+| Drone3 | `/world/perception_test_world/model/Drone3/link/camera_link/sensor/rgb_camera/image` | `/drone_2/camera/image` |
+
+### Target Classes
+
+Default target classes for surveillance:
+- 0: person
+- 2: car
+- 3: motorcycle
+- 5: bus
+- 7: truck
+
+---
+
 ## Decisions Log
 
 | Date | Decision | Rationale |
@@ -1586,3 +1876,7 @@ def _publish_swarm_status(self) -> None:
 | 2025-01-14 | Add fdm_port_out to models | Required for multi-drone despite being "deprecated" in plugin code |
 | 2026-01-14 | Hybrid ROS2 architecture | SwarmBridge for simulation (preserves working code), DroneNode for hardware (true P2P) |
 | 2026-01-14 | P2P data: position+intent+formation | Sufficient for coordination without bandwidth overhead of full perception sharing |
+| 2026-01-14 | YOLOv11 (Ultralytics) | Modern, pip-installable, excellent balance of speed and accuracy |
+| 2026-01-14 | GPU with CPU fallback | Maximize performance when GPU available, still functional on CPU-only systems |
+| 2026-01-14 | P2P detection broadcast | Each drone publishes detections, others subscribe via DetectionTracker (matches existing patterns) |
+| 2026-01-14 | Simple IoU tracker | Lightweight, sufficient for surveillance; can upgrade to ByteTrack/BoTSORT if needed |

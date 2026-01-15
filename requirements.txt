@@ -7,13 +7,20 @@
 # Core dependencies
 pymavlink>=2.4.49       # MAVLink communication with ArduPilot SITL
 mavsdk>=3.10.0          # High-level MAVLink SDK (used in Phase 1)
-numpy>=2.0.0            # Numerical operations
+numpy==1.26.4            # Numerical operations
 jinja2>=3.1.0           # World file templating
+opencv-python==4.10.0.84  # Image processing (Phase 5)
 
 # Testing
 pytest>=9.0.0           # Test framework
 pytest-asyncio>=1.0.0   # Async test support
 
+# Vision / Perception (Phase 5)
+# Note: These are large packages (~2GB total with PyTorch)
+# Install separately if needed: pip install ultralytics opencv-python
+ultralytics>=8.0.0      # YOLOv11 object detection
+opencv-python>=4.8.0    # Image processing
+
 # Optional: Development tools
-# flake8>=7.0.0         # Linting
-# opencv-python>=4.10.0 # Vision (Phase 5)
+# black>=23.0.0         # Code formatting
+# ruff>=0.1.0           # Linting

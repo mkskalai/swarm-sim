@@ -19,6 +19,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 # Generate custom messages and services
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -26,6 +27,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DroneIntent.msg"
   "msg/FormationRole.msg"
   "msg/SwarmStatus.msg"
+  "msg/Detection.msg"
+  "msg/DetectionArray.msg"
   "srv/SetFormation.srv"
   "srv/EmergencyCommand.srv"
   DEPENDENCIES builtin_interfaces std_msgs
@@ -46,6 +49,7 @@ install(PROGRAMS
   scripts/swarm_bridge
   scripts/drone_node
   scripts/mission_coordinator
+  scripts/perception_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
