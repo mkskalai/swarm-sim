@@ -611,7 +611,7 @@ def test_scenario_search_with_failures(
                     continue
 
                 target_wp = progress.assigned_waypoints[waypoint_indices[drone_id]]
-                target = (target_wp[0], target_wp[1], target_wp[2])
+                target = (target_wp.north, target_wp.east, target_wp.down)
                 controller._send_position_ned(conn, target)
 
                 # Check arrival
@@ -727,7 +727,7 @@ def test_scenario_pursuit(controller: SwarmController, num_drones: int) -> bool:
         pursuit.set_target(target.to_pursuit_target())
         pursuit.assign_pursuers(list(range(num_drones)))
 
-        logger.info(f"Target starting at {target.position}, moving at {target.speed} m/s")
+        logger.info(f"Target starting at {target.position}, moving at {target._speed} m/s")
         logger.info(f"Pursuit strategy: {config.strategy.value}, surround radius: {config.surround_radius}m")
 
         # Pursuit loop
