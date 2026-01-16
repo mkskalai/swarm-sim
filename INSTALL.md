@@ -538,6 +538,89 @@ if [[ "$LD_LIBRARY_PATH" == *"snap/code"* ]]; then
 fi
 ```
 
+### Issue: Gazebo version confusion (gazebo-classic vs gz-sim)
+
+**Cause:** Two Gazebo ecosystems exist - deprecated `gazebo-classic` (versions 9, 11) and current `gz-sim` (Garden, Harmonic). Many old tutorials reference gazebo-classic.
+
+**Fix:** Verify you have gz-sim:
+```bash
+gz sim --version  # Should show Harmonic or similar
+
+# If you have gazebo-classic by mistake:
+sudo apt remove gazebo*
+# Then install gz-sim via official instructions
+```
+
+### Issue: MAVSDK waits forever on "Waiting to discover system"
+
+**Cause:** By default, `sim_vehicle.py` only outputs MAVLink to port 14550. MAVSDK expects port 14540.
+
+**Fix:** Add the `--out` flag:
+```bash
+sim_vehicle.py -v ArduCopter -f JSON --console --out=udp:127.0.0.1:14540
+```
+
+### Issue: Paths with spaces break Gazebo
+
+**Cause:** Gazebo's resource path parsing doesn't handle spaces well.
+
+**Fix:** Use a symlink:
+```bash
+ln -s "/path/with spaces/project" ~/swarm
+```
+
+### Issue: MAVProxy --out doesn't work with --no-mavproxy
+
+**Cause:** The `--out` parameter is a MAVProxy feature. Without MAVProxy, there's nothing to forward.
+
+**Fix:** Either use MAVProxy (remove `--no-mavproxy`), or connect directly to SITL's TCP port:
+```python
+# With MAVProxy: sim_vehicle.py -f JSON --out=udp:127.0.0.1:14540
+system_address = "udpin://0.0.0.0:14540"
+
+# Without MAVProxy: sim_vehicle.py -f JSON --no-mavproxy
+system_address = "tcpout://127.0.0.1:5760"  # TCP port = 5760 + instance*10
+```
+
+### Issue: --speedup flag fails silently
+
+**Cause:** SITL requires integer for `--speedup`.
+
+**Fix:**
+```bash
+# WRONG
+sim_vehicle.py -f JSON --speedup 1.0
+
+# CORRECT
+sim_vehicle.py -f JSON --speedup 1
+```
+
+### Issue: Multiple SITL instances conflict
+
+**Cause:** Each SITL instance needs unique ports.
+
+**Fix:** Use instance flag and unique output ports:
+```bash
+# Instance 0
+sim_vehicle.py -v ArduCopter -f JSON -I0 --out=udp:127.0.0.1:14540
+
+# Instance 1
+sim_vehicle.py -v ArduCopter -f JSON -I1 --out=udp:127.0.0.1:14541
+
+# Instance N
+sim_vehicle.py -v ArduCopter -f JSON -I$N --out=udp:127.0.0.1:$((14540 + N))
+```
+
+### Issue: Performance problems with many drones
+
+**Cause:** Gazebo + multiple SITL instances consume significant resources.
+
+**Fix:**
+- Use `--headless` for SITL when not debugging
+- Reduce Gazebo physics rate: `<real_time_factor>0.5</real_time_factor>` in world file
+- Run Gazebo server-only: `gz sim -s` (no GUI)
+- Distribute SITL instances across CPU cores
+
 ---
 
 ## Project Structure
