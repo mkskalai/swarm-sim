@@ -39,6 +39,8 @@ class SwarmConfig:
         position_update_rate: Position command rate in Hz
         connection_timeout: Timeout for initial connection
         ekf_timeout: Timeout for EKF convergence
+        enable_vio: Enable Visual-Inertial Odometry for GPS-denied navigation
+        vio_mode: VIO navigation mode ("gps", "vio", "hybrid")
     """
     num_drones: int = 3
     base_port: int = 14540
@@ -46,6 +48,8 @@ class SwarmConfig:
     position_update_rate: float = 4.0
     connection_timeout: float = 30.0
     ekf_timeout: float = 60.0
+    enable_vio: bool = False
+    vio_mode: str = "hybrid"  # "gps", "vio", "hybrid"
 
 
 class SwarmController:
@@ -94,6 +98,10 @@ class SwarmController:
         self._is_connected = False
         self._is_armed = False
         self._current_positions: dict[int, PositionNED] = {}
+
+        # VIO estimators (optional, for GPS-denied navigation)
+        self._vio_estimators: dict[int, "PositionSource"] = {}
+        self._vio_enabled = self.config.enable_vio
 
         # Register failure handler callback
         self.failure_handler.on_failure(self._handle_failure)
@@ -163,6 +171,14 @@ class SwarmController:
 
     def disconnect_all(self) -> None:
         """Disconnect from all drones."""
+        # Stop VIO estimators
+        for vio in self._vio_estimators.values():
+            try:
+                vio.stop()
+            except Exception:
+                pass
+        self._vio_estimators.clear()
+
         for conn in self._connections.values():
             try:
                 conn.close()
@@ -173,6 +189,137 @@ class SwarmController:
         self._is_connected = False
         logger.info("All drones disconnected")
         print("All drones disconnected.")
+
+    # ----- VIO (GPS-Denied Navigation) -----
+
+    def init_vio(self, drone_id: int) -> bool:
+        """Initialize VIO for a specific drone.
+
+        Must be called after takeoff to get initial GPS position.
+
+        Args:
+            drone_id: Drone ID to initialize VIO for
+
+        Returns:
+            True if VIO initialized successfully
+        """
+        if not self._vio_enabled:
+            logger.warning("VIO is not enabled in config")
+            return False
+
+        if drone_id not in self._connections:
+            logger.error(f"Drone {drone_id} not connected")
+            return False
+
+        try:
+            from swarm.navigation import NavigationConfig, NavigationMode, PositionSource
+
+            # Create config based on mode
+            mode_map = {
+                "gps": NavigationMode.GPS,
+                "vio": NavigationMode.VIO,
+                "hybrid": NavigationMode.HYBRID,
+            }
+            mode = mode_map.get(self.config.vio_mode, NavigationMode.HYBRID)
+
+            config = NavigationConfig.for_simulation()
+            config.mode = mode
+
+            # Create position source
+            source = PositionSource(config, drone_id=drone_id)
+
+            # Get initial position from MAVLink
+            conn = self._connections[drone_id]
+            pos = self._get_position(conn, timeout=2.0)
+            if pos is None:
+                logger.error(f"Could not get initial position for drone {drone_id}")
+                return False
+
+            # Get attitude
+            msg = conn.recv_match(type='ATTITUDE', blocking=True, timeout=1.0)
+            if msg:
+                attitude = [msg.roll, msg.pitch, msg.yaw]
+            else:
+                attitude = [0.0, 0.0, 0.0]
+
+            # Initialize
+            altitude = -pos[2]  # Down to up
+            timestamp_us = int(time.time() * 1e6)
+
+            success = source.initialize(
+                position=[pos[0], pos[1], pos[2]],
+                velocity=[0.0, 0.0, 0.0],
+                attitude=attitude,
+                altitude=altitude,
+                timestamp_us=timestamp_us,
+            )
+
+            if success:
+                source.set_mavlink_connection(conn)
+                source.start()
+                self._vio_estimators[drone_id] = source
+                logger.info(f"VIO initialized for drone {drone_id}")
+                return True
+            else:
+                logger.error(f"Failed to initialize VIO for drone {drone_id}")
+                return False
+
+        except ImportError as e:
+            logger.error(f"Failed to import navigation module: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error initializing VIO for drone {drone_id}: {e}")
+            return False
+
+    def init_vio_all(self) -> bool:
+        """Initialize VIO for all connected drones.
+
+        Returns:
+            True if all drones initialized successfully
+        """
+        if not self._vio_enabled:
+            logger.warning("VIO is not enabled in config")
+            return False
+
+        all_success = True
+        for drone_id in self._connections:
+            if not self.init_vio(drone_id):
+                all_success = False
+
+        return all_success
+
+    def deny_gps(self, drone_id: int) -> None:
+        """Simulate GPS denial for a drone (testing only).
+
+        Args:
+            drone_id: Drone to deny GPS
+        """
+        if drone_id in self._vio_estimators:
+            self._vio_estimators[drone_id].deny_gps()
+            logger.info(f"GPS denied for drone {drone_id}")
+
+    def restore_gps(self, drone_id: int) -> None:
+        """Restore GPS for a drone (testing only).
+
+        Args:
+            drone_id: Drone to restore GPS
+        """
+        if drone_id in self._vio_estimators:
+            self._vio_estimators[drone_id].restore_gps()
+            logger.info(f"GPS restored for drone {drone_id}")
+
+    def get_vio_state(self, drone_id: int):
+        """Get VIO state for a drone.
+
+        Args:
+            drone_id: Drone ID
+
+        Returns:
+            VIOState or None
+        """
+        if drone_id in self._vio_estimators:
+            return self._vio_estimators[drone_id].get_state()
+        return None
 
     # ----- Basic Flight Commands -----
 
@@ -457,17 +604,34 @@ class SwarmController:
     def _get_position(
         self,
         conn: mavutil.mavlink_connection,
-        timeout: float = 1.0
+        timeout: float = 1.0,
+        drone_id: Optional[int] = None
     ) -> Optional[PositionNED]:
         """Get current position from drone.
+
+        If VIO is enabled and GPS is denied, uses VIO position estimate.
+        Otherwise falls back to ArduPilot's LOCAL_POSITION_NED.
 
         Args:
             conn: MAVLink connection
             timeout: How long to wait for position message
+            drone_id: Drone ID for VIO lookup (optional)
 
         Returns:
             (north, east, down) position or None if unavailable
         """
+        # Try VIO first if enabled
+        if self._vio_enabled and drone_id is not None:
+            if drone_id in self._vio_estimators:
+                pos, mode = self._vio_estimators[drone_id].get_position()
+                if pos is not None:
+                    # VIO provides valid position
+                    from swarm.navigation import NavigationMode
+                    if mode != NavigationMode.DEAD_RECKONING:
+                        return (pos[0], pos[1], pos[2])
+                    # Dead reckoning - fall back to MAVLink
+
+        # Standard MAVLink position
         msg = conn.recv_match(type='LOCAL_POSITION_NED', blocking=True, timeout=timeout)
         if msg:
             return (msg.x, msg.y, msg.z)

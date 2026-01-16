@@ -21,6 +21,9 @@ pytest-asyncio>=1.0.0   # Async test support
 ultralytics>=8.0.0      # YOLOv11 object detection
 opencv-python>=4.8.0    # Image processing
 
+# Navigation / GPS-Denied (Phase 6)
+scipy>=1.11.0           # EKF matrix operations
+
 # Optional: Development tools
 # black>=23.0.0         # Code formatting
 # ruff>=0.1.0           # Linting

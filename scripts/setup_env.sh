@@ -10,8 +10,6 @@
 # - ardupilot_gazebo plugin
 # - ROS2 Jazzy (optional)
 
-set -e
-
 echo "=== Drone Swarm Environment Setup ==="
 
 # Clean snap library pollution (VSCode snap injects conflicting glibc)
@@ -73,6 +71,7 @@ if command -v nvidia-smi &> /dev/null && [ -f "/usr/share/glvnd/egl_vendor.d/10_
 fi
 
 # Add project to Python path
+export SWARM_PROJECT_ROOT="${PROJECT_ROOT}"
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 
 echo ""

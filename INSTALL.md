@@ -183,53 +183,11 @@ pip install --upgrade pip
 
 ## Step 7: Setup Environment Variables
 
-Create a setup script at `~/setup_swarm_env.sh`:
+The project includes a setup script at `scripts/setup_env.sh`. Create a symlink for easy access:
 
 ```bash
-cat > ~/setup_swarm_env.sh << 'EOF'
-#!/bin/bash
-# Drone Swarm Environment Setup
-# Source this file before working with the swarm project
-
-# Activate Python virtual environment
-source ~/venv-ardupilot/bin/activate
-
-# Source ROS2
-source /opt/ros/jazzy/setup.bash
-
-# Swarm project path (adjust if you cloned elsewhere)
-export SWARM_PROJECT_ROOT="$HOME/swarm"
-export PYTHONPATH="${SWARM_PROJECT_ROOT}:${PYTHONPATH}"
-
-# Gazebo resource paths - include both project models and ardupilot_gazebo
-export GZ_SIM_SYSTEM_PLUGIN_PATH=$HOME/ardupilot_gazebo/build:${GZ_SIM_SYSTEM_PLUGIN_PATH}
-export GZ_SIM_RESOURCE_PATH=${SWARM_PROJECT_ROOT}/models:$HOME/ardupilot_gazebo/models:$HOME/ardupilot_gazebo/worlds:${GZ_SIM_RESOURCE_PATH}
-
-# NVIDIA GPU support (for hybrid Intel/NVIDIA laptops)
-if [ -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json ]; then
-    export __GLX_VENDOR_LIBRARY_NAME=nvidia
-    export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
-    export __NV_PRIME_RENDER_OFFLOAD=1
-fi
-
-# Clean snap library paths (if running in VSCode snap terminal)
-if [[ "$LD_LIBRARY_PATH" == *"snap/code"* ]]; then
-    LD_LIBRARY_PATH=$(echo "$LD_LIBRARY_PATH" | tr ':' '\n' | grep -v snap | tr '\n' ':' | sed 's/:$//')
-    export LD_LIBRARY_PATH
-fi
-
-# Source ROS2 workspace if it exists and is built
-if [ -f ~/ros2_ws/install/setup.bash ]; then
-    source ~/ros2_ws/install/setup.bash
-fi
-
-echo "Swarm environment activated"
-echo "  Python: $(which python)"
-echo "  ROS2: $ROS_DISTRO"
-echo "  Gazebo plugin path set"
-EOF
-
-chmod +x ~/setup_swarm_env.sh
+# After cloning (see Step 8), create symlink:
+ln -s ~/swarm/scripts/setup_env.sh ~/setup_swarm_env.sh
 ```
 
 Add to your `~/.bashrc` for automatic sourcing (optional):
@@ -237,6 +195,14 @@ Add to your `~/.bashrc` for automatic sourcing (optional):
 ```bash
 echo 'source ~/setup_swarm_env.sh' >> ~/.bashrc
 ```
+
+The setup script configures:
+- Python virtual environment (`~/venv-ardupilot`)
+- ROS2 Jazzy
+- Gazebo plugin and resource paths
+- NVIDIA GPU support (for hybrid graphics)
+- VSCode snap library path cleanup
+- PYTHONPATH for the swarm module
 
 ---
 
@@ -642,13 +608,15 @@ After installation, your directory structure should look like:
 │   └── install/
 ├── swarm/                        # This project
 │   ├── swarm/                    # Python package
-│   │   └── perception/           # Vision processing (Phase 5)
+│   │   ├── perception/           # Vision processing (Phase 5)
+│   │   └── navigation/           # GPS-denied navigation (Phase 6)
 │   ├── swarm_ros/                # ROS2 package
 │   ├── models/                   # Drone models (Drone1, Drone2, etc.)
 │   │   └── DroneTemplate/        # Base template with camera
 │   ├── scripts/                  # Test and utility scripts
+│   │   └── setup_env.sh          # Canonical environment setup
 │   └── worlds/                   # Generated world files
-└── setup_swarm_env.sh            # Environment setup script
+└── setup_swarm_env.sh -> ~/swarm/scripts/setup_env.sh  # Symlink
 ```
 
 **Important:** All drone models live in `~/swarm/models/`, NOT in `ardupilot_gazebo/`. The DroneTemplate includes an RGB camera sensor and is used to generate Drone1, Drone2, etc.

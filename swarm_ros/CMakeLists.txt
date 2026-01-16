@@ -29,6 +29,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SwarmStatus.msg"
   "msg/Detection.msg"
   "msg/DetectionArray.msg"
+  "msg/VIOState.msg"
   "srv/SetFormation.srv"
   "srv/EmergencyCommand.srv"
   DEPENDENCIES builtin_interfaces std_msgs
@@ -50,6 +51,7 @@ install(PROGRAMS
   scripts/drone_node
   scripts/mission_coordinator
   scripts/perception_node
+  scripts/vio_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

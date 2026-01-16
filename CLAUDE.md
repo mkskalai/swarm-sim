@@ -48,9 +48,25 @@ Drone swarm simulation using ArduPilot SITL, Gazebo Harmonic, ROS2 Jazzy. Target
 | 3. Coordination | ✅ | `swarm/coordination/swarm_controller.py`, `formations.py` |
 | 4. ROS2 | ✅ | `swarm_ros/swarm_ros/swarm_bridge.py` |
 | 5. Perception | ✅ | `swarm/perception/detector.py`, `tracker.py` |
-| 6. GPS-Denied Nav | ⬜ | Visual odometry, IMU fusion |
-| 7. Behaviors | ⬜ | Pursuit, search patterns |
+| 6. GPS-Denied Nav | ✅ | `swarm/navigation/`, ORB+optical flow VO, EKF fusion |
+| 7. Autonomous Missions | ⬜ | Terrain nav, GPS jamming, pursuit, search patterns |
 | 8. Docker | ⬜ | Containerization |
+
+### Phase 7 Details: Autonomous Missions
+
+**Goal:** Integrate perception + navigation for autonomous swarm operations in contested environments.
+
+**Components:**
+- **Terrain worlds:** Urban, forest, canyon environments with obstacles
+- **GPS jamming simulator:** Selectively disable GPS on N drones at runtime
+- **Pursuit behavior:** Track moving target through complex terrain
+- **Search patterns:** Systematic area coverage (spiral, lawnmower, expanding square)
+- **Perception-Navigation integration:** YOLO detections as semantic landmarks for VIO
+
+**Test scenarios:**
+1. Swarm navigates terrain → 30-50% get jammed → jammed drones switch to VIO + P2P relative positioning
+2. Pursuit through urban canyon with intermittent GPS denial
+3. Search pattern maintains coverage when subset loses GPS
 
 ---
 
@@ -76,11 +92,23 @@ CMakeLists.txt must use versioned path: `lib/python${Python3_VERSION_MAJOR}.${Py
 ### 6. Always Log SITL Output
 Never use `subprocess.DEVNULL` for SITL - silent failures are impossible to debug. Logs go to `logs/sitl_N_stdout.log`.
 
+### 7. VIO Must Initialize After Takeoff
+VIO needs an initial GPS position for scale estimation. Call `init_vio_all()` after `takeoff_all()`, not before. The altitude at initialization is used for monocular scale.
+
+### 8. Monocular Scale Drift
+Without stereo cameras, VIO scale drifts over time. In hybrid mode, GPS automatically corrects scale. In VIO-only mode, expect gradual position drift.
+
+### 9. ROS2 Nodes Can't Find `swarm` Module
+`colcon build` **copies** Python files to `~/ros2_ws/install/`, breaking symlink context. ROS2 nodes need explicit path resolution to find the `swarm` module. See `vio_node.py` for the multi-method approach (env var → symlink → hardcoded path).
+
 ---
 
 ## Quick Commands
 
 ```bash
+# Create symlink if not exists (one-time setup)
+ln -sf ~/swarm/scripts/setup_env.sh ~/setup_swarm_env.sh
+
 # Activate environment
 source ~/setup_swarm_env.sh
 
@@ -95,6 +123,12 @@ ros2 launch swarm_ros simulation.launch.py num_drones:=3
 
 # Rebuild ROS2 after changes
 cd ~/ros2_ws && colcon build --packages-select swarm_ros && source install/setup.bash
+
+# Phase 6: GPS-denied navigation test
+python scripts/test_phase6.py --num-drones 3 --gps-denial-test
+
+# Run unit tests
+pytest tests/test_navigation.py -v
 ```
 
 ---
@@ -108,6 +142,10 @@ cd ~/ros2_ws && colcon build --packages-select swarm_ros && source install/setup
 | `YOLODetector` | `swarm/perception/detector.py` | Object detection |
 | `SimpleTracker` | `swarm/perception/tracker.py` | IoU-based tracking |
 | `SwarmBridge` | `swarm_ros/swarm_ros/swarm_bridge.py` | ROS2 interface for simulation |
+| `VIOEstimator` | `swarm/navigation/vio_estimator.py` | Visual-Inertial Odometry orchestrator |
+| `NavigationEKF` | `swarm/navigation/ekf.py` | Extended Kalman Filter for sensor fusion |
+| `VisualOdometry` | `swarm/navigation/visual_odometry.py` | ORB + optical flow VO |
+| `PositionSource` | `swarm/navigation/position_source.py` | Hybrid GPS/VIO position provider |
 
 ---
 
@@ -121,3 +159,4 @@ cd ~/ros2_ws && colcon build --packages-select swarm_ros && source install/setup
 | 2026-01-14 | SwarmBridge pattern | Preserve working pymavlink code |
 | 2026-01-14 | YOLOv11 + IoU tracker | Lightweight, sufficient for surveillance |
 | 2026-01-14 | Standalone drone models | Nested includes break camera joints |
+| 2026-01-16 | ORB+optical flow + EKF | ORB primary, flow fallback, error-state EKF for VIO |
