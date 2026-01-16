@@ -1,0 +1,66 @@
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+*.egg
+.eggs
+
+# Virtual environments
+venv/
+venv-*/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs and temp files
+logs/
+*.log
+*.tmp
+eeprom.bin
+mav.tlog
+mav.tlog.raw
+mav.parm
+
+# Docker
+docker/
+Dockerfile
+docker-compose.yml
+
+# Documentation build
+docs/_build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large model files (downloaded at runtime)
+*.pt
+*.onnx
+
+# Editor backups
+*~
+\#*\#

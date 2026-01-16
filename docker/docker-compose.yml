@@ -1,0 +1,107 @@
+# Drone Swarm Simulation - Docker Compose Configuration
+#
+# Usage:
+#   Development mode (with volume mounts):
+#     docker compose --profile dev up
+#
+#   CI/CD mode (self-contained tests):
+#     docker compose --profile ci run swarm
+#
+#   Interactive shell:
+#     docker compose run --rm swarm bash
+#
+#   Run specific test:
+#     docker compose run --rm swarm python scripts/test_phase7.py --scenario standalone
+
+services:
+  swarm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: swarm-simulation:latest
+    container_name: swarm-sim
+
+    # GPU support - falls back to CPU if NVIDIA runtime unavailable
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Environment for X11 forwarding and GPU
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # EGL/OpenGL rendering
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
+      - __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+      - __NV_PRIME_RENDER_OFFLOAD=1
+
+    # X11 socket and auth for GUI
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY:-${HOME}/.Xauthority}:/home/swarm/.Xauthority:rw
+
+    # Host network for MAVLink (many ports: 9002-9092, 14540-14555)
+    network_mode: host
+
+    # Allow ptrace for debugging
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+
+    stdin_open: true
+    tty: true
+
+  # Development profile - mounts source code for live editing
+  swarm-dev:
+    extends:
+      service: swarm
+    container_name: swarm-dev
+    profiles:
+      - dev
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY:-${HOME}/.Xauthority}:/home/swarm/.Xauthority:rw
+      # Mount source code for development
+      - ../swarm:/app/swarm:rw
+      - ../models:/app/models:rw
+      - ../worlds:/app/worlds:rw
+      - ../scripts:/app/scripts:rw
+      - ../tests:/app/tests:rw
+      # Persist logs
+      - ../logs:/app/logs:rw
+
+  # CI/CD profile - self-contained testing
+  swarm-ci:
+    extends:
+      service: swarm
+    container_name: swarm-ci
+    profiles:
+      - ci
+    # No GPU requirement for CI (CPU fallback)
+    deploy: {}
+    # No display needed for headless tests
+    environment:
+      - DISPLAY=
+      - QT_QPA_PLATFORM=offscreen
+    # Run tests by default
+    command: ["pytest", "tests/", "-v", "--tb=short"]
+
+  # Headless simulation server (no GUI)
+  swarm-headless:
+    extends:
+      service: swarm
+    container_name: swarm-headless
+    profiles:
+      - headless
+    environment:
+      - DISPLAY=
+      - QT_QPA_PLATFORM=offscreen
+      - GZ_SIM_HEADLESS_RENDERING=1
+    command: ["python", "scripts/run_phase3_test.py", "--num-drones", "3"]

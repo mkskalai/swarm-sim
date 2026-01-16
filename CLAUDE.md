@@ -15,6 +15,8 @@ Drone swarm simulation using ArduPilot SITL, Gazebo Harmonic, ROS2 Jazzy. Target
 | [docs/user-guide.md](docs/user-guide.md) | How to run simulations |
 | [docs/api/](docs/api/) | API reference (core, coordination, perception, ros2) |
 | [docs/contributing.md](docs/contributing.md) | Development workflow |
+| [docker/README.md](docker/README.md) | Docker setup and usage |
+| [docs/phase9-tactical-overwatch.md](docs/phase9-tactical-overwatch.md) | Phase 9 implementation plan |
 
 ---
 
@@ -50,7 +52,8 @@ Drone swarm simulation using ArduPilot SITL, Gazebo Harmonic, ROS2 Jazzy. Target
 | 5. Perception | ✅ | `swarm/perception/detector.py`, `tracker.py` |
 | 6. GPS-Denied Nav | ✅ | `swarm/navigation/`, ORB+optical flow VO, EKF fusion |
 | 7. Autonomous Missions | ✅ | `swarm/missions/`, `swarm/coordination/search_patterns.py`, `pursuit_controller.py` |
-| 8. Docker | ⬜ | Containerization |
+| 8. Docker | ✅ | `docker/Dockerfile`, `docker-compose.yml` |
+| 9. Tactical Overwatch | ⬜ | `swarm/tactical/` - Coverage mesh, threat intercept, observer interface |
 
 ### Phase 7 Details: Autonomous Missions
 
@@ -77,6 +80,69 @@ Drone swarm simulation using ArduPilot SITL, Gazebo Harmonic, ROS2 Jazzy. Target
 3. Search pattern maintains coverage when subset loses GPS
 
 **Run tests:** `python scripts/test_phase7.py --scenario standalone`
+
+### Phase 8 Details: Docker Containerization
+
+**Status: COMPLETE**
+
+**Components Implemented:**
+- **Multi-stage Dockerfile:** Base → ArduPilot builder → Gazebo plugin builder → Final image
+- **docker-compose.yml:** Profiles for dev, ci, and headless modes
+- **GPU support:** NVIDIA with automatic CPU fallback
+- **GUI support:** X11 forwarding for Gazebo visualization
+- **Helper scripts:** `build.sh`, `run.sh` for easy usage
+
+**Key files:**
+- `docker/Dockerfile` - Multi-stage build (~15-20GB final image)
+- `docker/docker-compose.yml` - Orchestration with dev/ci/headless profiles
+- `docker/entrypoint.sh` - Environment setup and GPU detection
+- `docker/scripts/build.sh` - Build helper
+- `docker/scripts/run.sh` - Run helper with X11 setup
+- `docker/README.md` - Docker usage documentation
+
+**Usage modes:**
+1. **Development:** Mount source code for live editing
+2. **CI/CD:** Self-contained testing with pytest
+3. **Headless:** Server-side simulation without GUI
+
+**Run container:**
+```bash
+cd docker
+./scripts/build.sh          # Build image (30-45 min first time)
+./scripts/run.sh dev        # Development mode
+./scripts/run.sh sim 3      # Run 3-drone simulation
+./scripts/run.sh ci         # Run tests
+```
+
+### Phase 9 Details: Tactical Swarm Overwatch
+
+**Status: PLANNED** - See [docs/phase9-tactical-overwatch.md](docs/phase9-tactical-overwatch.md) for full plan.
+
+**Mission:** Protective drone coverage over human group navigating labyrinth with threat interception.
+
+**Components Planned:**
+- **Group tracking:** GPS beacons from group members + visual fallback + observer input
+- **Coverage mesh:** Hexagonal formation dynamically following group
+- **Relative positioning:** Formation maintenance during GPS denial using anchor drones
+- **Threat detection:** YOLO-based enemy drone detection + classification (FRIENDLY/HOSTILE)
+- **Intercept planning:** Collision course computation for kamikaze defense
+- **Defender selection:** Weighted selection (prefer GPS-denied, low battery, edge drones)
+- **Observer interface:** CLI + ROS2 commands for human-swarm control
+
+**Key decisions:**
+- Always intercept threats (no minimum drone threshold)
+- Sacrifice GPS-denied and low-battery drones first
+- Human observers direct high-level behavior, swarm handles tactics
+
+**Reuses from existing phases:**
+- VIO/EKF (Phase 6) for GPS-denied operation
+- GPS Jammer (Phase 7) for jamming zone simulation
+- YOLO detector (Phase 5) with new drone class
+- NeighborTracker (Phase 4) for swarm awareness
+- PursuitController concepts (Phase 7) for intercept
+
+**Implementation order:**
+1. GroupTracker → 2. CoverageMesh → 3. RelativePositioning → 4. DroneDataset → 5. ThreatDetector → 6. InterceptPlanner → 7. DefenderSelector → 8. ObserverInterface → 9. MissionController → 10. TestScenarios
 
 ---
 
@@ -148,6 +214,12 @@ pytest tests/test_navigation.py -v
 pytest tests/test_search_patterns.py -v
 pytest tests/test_pursuit.py -v
 pytest tests/test_gps_jammer.py -v
+
+# Docker: Build and run
+cd docker && ./scripts/build.sh
+./scripts/run.sh dev         # Development mode with source mounts
+./scripts/run.sh sim 3       # Run 3-drone simulation
+./scripts/run.sh ci          # Run CI tests
 ```
 
 ---
@@ -171,6 +243,14 @@ pytest tests/test_gps_jammer.py -v
 | `GPSJammer` | `swarm/navigation/gps_jammer.py` | Zone-based GPS denial simulation |
 | `SemanticLandmarkDatabase` | `swarm/navigation/semantic_landmarks.py` | YOLO detection landmarks for VIO |
 | `AutonomousMissionController` | `swarm/missions/autonomous_mission.py` | Mission orchestrator (search→pursue→RTL) |
+| `TacticalMissionController` | `swarm/tactical/mission_controller.py` | Phase 9: Tactical overwatch orchestrator (planned) |
+| `GroupTracker` | `swarm/tactical/group_tracker.py` | Phase 9: Track protected human group (planned) |
+| `CoverageMeshPlanner` | `swarm/tactical/coverage_mesh.py` | Phase 9: Dynamic formation over group (planned) |
+| `ThreatDetector` | `swarm/tactical/threat_detector.py` | Phase 9: Enemy drone detection (planned) |
+| `InterceptPlanner` | `swarm/tactical/intercept_planner.py` | Phase 9: Collision course computation (planned) |
+| `DefenderSelector` | `swarm/tactical/defender_selector.py` | Phase 9: Choose drone for intercept (planned) |
+| `ObserverInterface` | `swarm/tactical/observer_interface.py` | Phase 9: Human-swarm commands (planned) |
+| `RelativePositioning` | `swarm/tactical/relative_positioning.py` | Phase 9: GPS-denied formation keeping (planned) |
 
 ---
 
@@ -188,3 +268,11 @@ pytest tests/test_gps_jammer.py -v
 | 2026-01-16 | Zone-based GPS jamming | Geographic zones + probability for realistic denial simulation |
 | 2026-01-16 | Adaptive search patterns | Dynamic reallocation when drones fail during search |
 | 2026-01-16 | Surround pursuit strategy | Multi-drone encirclement default; intercept for fast targets |
+| 2026-01-16 | Phase 9: Tactical Overwatch | Human-directed swarm for labyrinth protection scenario |
+| 2026-01-16 | GPS beacon + visual hybrid | Group tracking robust to jamming zones |
+| 2026-01-16 | Always intercept policy | No minimum drone threshold; neutralize all threats |
+| 2026-01-16 | Sacrifice jammed/low-battery | Defender selection prefers expendable drones |
+| 2026-01-16 | CLI + ROS2 observer interface | Start simple, extensible to web dashboard later |
+| 2026-01-16 | Single all-in-one Docker image | Simpler deployment; multi-container adds complexity for little benefit |
+| 2026-01-16 | Multi-stage Docker build | Reduces final image size; separates build deps from runtime |
+| 2026-01-16 | Host network mode | Simplifies MAVLink port exposure (many dynamic ports) |
