@@ -116,6 +116,9 @@ class ProcessManager:
         env["GZ_SIM_SYSTEM_PLUGIN_PATH"] = f"{ag_path}/build:{gz_plugin_path}"
         env["GZ_SIM_RESOURCE_PATH"] = f"{ag_path}/models:{ag_path}/worlds:{gz_resource_path}"
 
+        # Add project models and worlds directories
+        env["GZ_SIM_RESOURCE_PATH"] = f"{PROJECT_ROOT}/models:{PROJECT_ROOT}/worlds:{env['GZ_SIM_RESOURCE_PATH']}"
+
         # Force NVIDIA GPU if available (for hybrid graphics)
         if Path("/usr/share/glvnd/egl_vendor.d/10_nvidia.json").exists():
             env["__GLX_VENDOR_LIBRARY_NAME"] = "nvidia"

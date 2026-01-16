@@ -1,0 +1,732 @@
+<?xml version="1.0" ?>
+<!--
+  Terrain world for Phase 7 autonomous missions.
+  Generated terrain type: urban
+  Urban terrain with 13 buildings and 4 vehicles
+
+  Usage:
+    python scripts/generate_terrain_world.py --terrain urban --num-drones 4
+    gz sim -r worlds/terrain_urban_4.sdf
+-->
+<sdf version="1.9">
+  <world name="urban_world">
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Required system plugins -->
+    <plugin filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
+    </plugin>
+    <plugin filename="gz-sim-navsat-system"
+      name="gz::sim::systems::NavSat">
+    </plugin>
+
+    <!-- Scene settings -->
+    <scene>
+      <ambient>1.0 1.0 1.0</ambient>
+
+      <background>0.6 0.7 0.8</background>
+
+      <sky></sky>
+    </scene>
+
+    <!-- GPS coordinates (ArduPilot default: Canberra, Australia) -->
+    <spherical_coordinates>
+      <latitude_deg>-35.363262</latitude_deg>
+      <longitude_deg>149.165237</longitude_deg>
+      <elevation>584</elevation>
+      <heading_deg>0</heading_deg>
+      <surface_model>EARTH_WGS84</surface_model>
+    </spherical_coordinates>
+
+    <!-- Lighting -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 100 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.8 0.8 0.8 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground plane -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>200.0 200.0</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>200.0 200.0</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1.0</ambient>
+            <diffuse>0.3 0.3 0.3 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Reference axes for debugging -->
+    <model name="axes">
+      <static>true</static>
+      <link name="link">
+        <visual name="x_axis">
+          <cast_shadows>false</cast_shadows>
+          <pose>5 0 0.1 0 0 0</pose>
+          <geometry>
+            <box><size>10 0.05 0.05</size></box>
+          </geometry>
+          <material>
+            <ambient>1 0 0 0.8</ambient>
+            <diffuse>1 0 0 0.8</diffuse>
+          </material>
+        </visual>
+        <visual name="y_axis">
+          <cast_shadows>false</cast_shadows>
+          <pose>0 5 0.1 0 0 0</pose>
+          <geometry>
+            <box><size>0.05 10 0.05</size></box>
+          </geometry>
+          <material>
+            <ambient>0 1 0 0.8</ambient>
+            <diffuse>0 1 0 0.8</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ==================== OBSTACLES ==================== -->
+
+
+    <!-- building_0 -->
+    <model name="building_0">
+      <static>true</static>
+      <pose>17.75029318369119 47.23210738148823 11.583526325491185 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>10.418827284984074 10.060196924537468 23.16705265098237</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>10.418827284984074 10.060196924537468 23.16705265098237</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.33477553305176644 0.33477553305176644 0.3012979797465898 1.0</ambient>
+            <diffuse>0.33477553305176644 0.33477553305176644 0.3012979797465898 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_1 -->
+    <model name="building_1">
+      <static>true</static>
+      <pose>17.186379748036032 110.05355288103362 9.524017721125947 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>6.159215818103181 7.1930259041198905 19.048035442251894</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>6.159215818103181 7.1930259041198905 19.048035442251894</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.5179765922412867 0.5179765922412867 0.466178933017158 1.0</ambient>
+            <diffuse>0.5179765922412867 0.5179765922412867 0.466178933017158 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_2 -->
+    <model name="building_2">
+      <static>true</static>
+      <pose>20.892656838759088 143.09430456677828 9.934184857399927 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>6.038992558068366 10.834915510996847 19.868369714799854</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>6.038992558068366 10.834915510996847 19.868369714799854</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.4361002066071967 0.4361002066071967 0.39249018594647705 1.0</ambient>
+            <diffuse>0.4361002066071967 0.4361002066071967 0.39249018594647705 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_3 -->
+    <model name="building_3">
+      <static>true</static>
+      <pose>54.57213072206781 18.36594545112627 11.203702113953408 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>6.556475060280888 6.5802982610007845 22.407404227906817</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>6.556475060280888 6.5802982610007845 22.407404227906817</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.5414904125467563 0.5414904125467563 0.4873413712920807 1.0</ambient>
+            <diffuse>0.5414904125467563 0.5414904125467563 0.4873413712920807 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_4 -->
+    <model name="building_4">
+      <static>true</static>
+      <pose>80.52040631273226 23.29404664252995 8.907493234682477 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>9.711118514185475 11.170241401864663 17.814986469364953</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>9.711118514185475 11.170241401864663 17.814986469364953</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.5818287344859694 0.5818287344859694 0.5236458610373724 1.0</ambient>
+            <diffuse>0.5818287344859694 0.5818287344859694 0.5236458610373724 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_5 -->
+    <model name="building_5">
+      <static>true</static>
+      <pose>77.27898275651548 47.89387963602107 4.8585121499826975 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>6.478751861541765 7.396745318166181 9.717024299965395</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>6.478751861541765 7.396745318166181 9.717024299965395</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.41118944124403684 0.41118944124403684 0.37007049711963313 1.0</ambient>
+            <diffuse>0.41118944124403684 0.41118944124403684 0.37007049711963313 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_6 -->
+    <model name="building_6">
+      <static>true</static>
+      <pose>78.70180967116883 107.09507030771488 9.508300774596044 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>7.60186693229468 11.619927526274964 19.01660154919209</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>7.60186693229468 11.619927526274964 19.01660154919209</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.5436524022667952 0.5436524022667952 0.48928716204011574 1.0</ambient>
+            <diffuse>0.5436524022667952 0.5436524022667952 0.48928716204011574 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_7 -->
+    <model name="building_7">
+      <static>true</static>
+      <pose>82.29126797950349 136.63402493761927 9.43999795875979 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>8.276732650545886 11.937140103819571 18.87999591751958</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>8.276732650545886 11.937140103819571 18.87999591751958</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.5227798975098584 0.5227798975098584 0.4705019077588726 1.0</ambient>
+            <diffuse>0.5227798975098584 0.5227798975098584 0.4705019077588726 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_8 -->
+    <model name="building_8">
+      <static>true</static>
+      <pose>105.32100243904037 108.15453048059082 12.014732571847963 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>7.606445255854217 7.2658970615179586 24.029465143695926</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>7.606445255854217 7.2658970615179586 24.029465143695926</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.6505470505890675 0.6505470505890675 0.5854923455301607 1.0</ambient>
+            <diffuse>0.6505470505890675 0.6505470505890675 0.5854923455301607 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_9 -->
+    <model name="building_9">
+      <static>true</static>
+      <pose>111.5543866529488 138.95631901060665 6.251481415233446 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>11.487285538443262 8.753111115524392 12.502962830466892</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>11.487285538443262 8.753111115524392 12.502962830466892</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.3986510030775934 0.3986510030775934 0.3587859027698341 1.0</ambient>
+            <diffuse>0.3986510030775934 0.3986510030775934 0.3587859027698341 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_10 -->
+    <model name="building_10">
+      <static>true</static>
+      <pose>140.84585990223542 53.97822883602477 12.479069655208438 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>8.396403030842384 7.3159245549437 24.958139310416875</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>8.396403030842384 7.3159245549437 24.958139310416875</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.5038105174705858 0.5038105174705858 0.4534294657235272 1.0</ambient>
+            <diffuse>0.5038105174705858 0.5038105174705858 0.4534294657235272 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_11 -->
+    <model name="building_11">
+      <static>true</static>
+      <pose>135.47116375424736 76.0964913035066 7.5883597177973146 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>9.76467625021854 10.752476186177784 15.176719435594629</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>9.76467625021854 10.752476186177784 15.176719435594629</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.3254110824607828 0.3254110824607828 0.29286997421470456 1.0</ambient>
+            <diffuse>0.3254110824607828 0.3254110824607828 0.29286997421470456 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- building_12 -->
+    <model name="building_12">
+      <static>true</static>
+      <pose>144.96121380240098 110.29114345099137 4.097588686513967 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>11.82647026568171 11.164678213406988 8.195177373027933</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>11.82647026568171 11.164678213406988 8.195177373027933</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.5882887277440778 0.5882887277440778 0.5294598549696701 1.0</ambient>
+            <diffuse>0.5882887277440778 0.5882887277440778 0.5294598549696701 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- vehicle_0 -->
+    <model name="vehicle_0">
+      <static>true</static>
+      <pose>105.91525286540723 62.69203039240685 0.75 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>4.5 1.8 1.5</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>4.5 1.8 1.5</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.5845770791478849 0.2223104347191753 0.286953050133821 1.0</ambient>
+            <diffuse>0.5845770791478849 0.2223104347191753 0.286953050133821 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- vehicle_1 -->
+    <model name="vehicle_1">
+      <static>true</static>
+      <pose>92.59579301267303 172.61054840337283 0.75 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>4.5 1.8 1.5</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>4.5 1.8 1.5</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.7255117642269164 0.2526778101502182 0.3001172226100597 1.0</ambient>
+            <diffuse>0.7255117642269164 0.2526778101502182 0.3001172226100597 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- vehicle_2 -->
+    <model name="vehicle_2">
+      <static>true</static>
+      <pose>48.58430088482102 166.02045429517128 0.75 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>4.5 1.8 1.5</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>4.5 1.8 1.5</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.7223111419020602 0.2596889582897266 0.32778989897320104 1.0</ambient>
+            <diffuse>0.7223111419020602 0.2596889582897266 0.32778989897320104 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- vehicle_3 -->
+    <model name="vehicle_3">
+      <static>true</static>
+      <pose>117.43523383010756 44.454282967941566 0.75 0 0 0</pose>
+      <link name="link">
+
+        <collision name="collision">
+          <geometry>
+
+            <box>
+              <size>4.5 1.8 1.5</size>
+            </box>
+
+          </geometry>
+        </collision>
+
+        <visual name="visual">
+          <geometry>
+
+            <box>
+              <size>4.5 1.8 1.5</size>
+            </box>
+
+          </geometry>
+          <material>
+            <ambient>0.6575064800450908 0.30787580602392517 0.35572529572611167 1.0</ambient>
+            <diffuse>0.6575064800450908 0.30787580602392517 0.35572529572611167 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+
+    <!-- ==================== DRONES ==================== -->
+
+
+    <!-- Drone1 (Instance 0) -->
+    <!-- MAVSDK port: 5760, FDM port: 9002 -->
+    <include>
+      <uri>model://Drone1</uri>
+      <name>Drone1</name>
+      <pose>0.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
+    <!-- Drone2 (Instance 1) -->
+    <!-- MAVSDK port: 5770, FDM port: 9012 -->
+    <include>
+      <uri>model://Drone2</uri>
+      <name>Drone2</name>
+      <pose>5.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
+    <!-- Drone3 (Instance 2) -->
+    <!-- MAVSDK port: 5780, FDM port: 9022 -->
+    <include>
+      <uri>model://Drone3</uri>
+      <name>Drone3</name>
+      <pose>10.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
+    <!-- Drone4 (Instance 3) -->
+    <!-- MAVSDK port: 5790, FDM port: 9032 -->
+    <include>
+      <uri>model://Drone4</uri>
+      <name>Drone4</name>
+      <pose>15.0 0.0 0.195 0 0 0.0</pose>
+    </include>
+
+
+  </world>
+</sdf>

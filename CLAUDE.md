@@ -49,24 +49,34 @@ Drone swarm simulation using ArduPilot SITL, Gazebo Harmonic, ROS2 Jazzy. Target
 | 4. ROS2 | ✅ | `swarm_ros/swarm_ros/swarm_bridge.py` |
 | 5. Perception | ✅ | `swarm/perception/detector.py`, `tracker.py` |
 | 6. GPS-Denied Nav | ✅ | `swarm/navigation/`, ORB+optical flow VO, EKF fusion |
-| 7. Autonomous Missions | ⬜ | Terrain nav, GPS jamming, pursuit, search patterns |
+| 7. Autonomous Missions | ✅ | `swarm/missions/`, `swarm/coordination/search_patterns.py`, `pursuit_controller.py` |
 | 8. Docker | ⬜ | Containerization |
 
 ### Phase 7 Details: Autonomous Missions
 
-**Goal:** Integrate perception + navigation for autonomous swarm operations in contested environments.
+**Status: COMPLETE**
 
-**Components:**
-- **Terrain worlds:** Urban, forest, canyon environments with obstacles
-- **GPS jamming simulator:** Selectively disable GPS on N drones at runtime
-- **Pursuit behavior:** Track moving target through complex terrain
-- **Search patterns:** Systematic area coverage (spiral, lawnmower, expanding square)
-- **Perception-Navigation integration:** YOLO detections as semantic landmarks for VIO
+**Components Implemented:**
+- **Terrain worlds:** Urban, forest, canyon Jinja2 templates (`worlds/terrain.sdf.jinja`)
+- **GPS jamming simulator:** Zone-based + probabilistic denial (`swarm/navigation/gps_jammer.py`)
+- **Pursuit behavior:** Multi-drone tracking with FOLLOW/INTERCEPT/SURROUND/SHADOW strategies
+- **Search patterns:** Lawnmower, spiral, expanding square with dynamic reallocation
+- **Semantic landmarks:** YOLO detections as VIO position corrections
+
+**Key files:**
+- `swarm/coordination/search_patterns.py` - SearchPatternGenerator, AdaptiveSearchController
+- `swarm/coordination/pursuit_controller.py` - PursuitController, SimulatedTarget
+- `swarm/navigation/gps_jammer.py` - GPSJammer, GPSDenialZone
+- `swarm/navigation/semantic_landmarks.py` - SemanticLandmarkDatabase
+- `swarm/missions/autonomous_mission.py` - AutonomousMissionController
+- `swarm/missions/terrain_config.py` - TerrainConfig, terrain generators
 
 **Test scenarios:**
 1. Swarm navigates terrain → 30-50% get jammed → jammed drones switch to VIO + P2P relative positioning
 2. Pursuit through urban canyon with intermittent GPS denial
 3. Search pattern maintains coverage when subset loses GPS
+
+**Run tests:** `python scripts/test_phase7.py --scenario standalone`
 
 ---
 
@@ -127,8 +137,17 @@ cd ~/ros2_ws && colcon build --packages-select swarm_ros && source install/setup
 # Phase 6: GPS-denied navigation test
 python scripts/test_phase6.py --num-drones 3 --gps-denial-test
 
+# Phase 7: Autonomous missions test (standalone - no sim required)
+python scripts/test_phase7.py --scenario standalone
+
+# Phase 7: Generate terrain world
+python scripts/generate_terrain_world.py --terrain urban --num-drones 4
+
 # Run unit tests
 pytest tests/test_navigation.py -v
+pytest tests/test_search_patterns.py -v
+pytest tests/test_pursuit.py -v
+pytest tests/test_gps_jammer.py -v
 ```
 
 ---
@@ -146,6 +165,12 @@ pytest tests/test_navigation.py -v
 | `NavigationEKF` | `swarm/navigation/ekf.py` | Extended Kalman Filter for sensor fusion |
 | `VisualOdometry` | `swarm/navigation/visual_odometry.py` | ORB + optical flow VO |
 | `PositionSource` | `swarm/navigation/position_source.py` | Hybrid GPS/VIO position provider |
+| `SearchPatternGenerator` | `swarm/coordination/search_patterns.py` | Lawnmower, spiral, expanding square patterns |
+| `AdaptiveSearchController` | `swarm/coordination/search_patterns.py` | Distributed search with failure reallocation |
+| `PursuitController` | `swarm/coordination/pursuit_controller.py` | Multi-drone target tracking |
+| `GPSJammer` | `swarm/navigation/gps_jammer.py` | Zone-based GPS denial simulation |
+| `SemanticLandmarkDatabase` | `swarm/navigation/semantic_landmarks.py` | YOLO detection landmarks for VIO |
+| `AutonomousMissionController` | `swarm/missions/autonomous_mission.py` | Mission orchestrator (search→pursue→RTL) |
 
 ---
 
@@ -160,3 +185,6 @@ pytest tests/test_navigation.py -v
 | 2026-01-14 | YOLOv11 + IoU tracker | Lightweight, sufficient for surveillance |
 | 2026-01-14 | Standalone drone models | Nested includes break camera joints |
 | 2026-01-16 | ORB+optical flow + EKF | ORB primary, flow fallback, error-state EKF for VIO |
+| 2026-01-16 | Zone-based GPS jamming | Geographic zones + probability for realistic denial simulation |
+| 2026-01-16 | Adaptive search patterns | Dynamic reallocation when drones fail during search |
+| 2026-01-16 | Surround pursuit strategy | Multi-drone encirclement default; intercept for fast targets |

@@ -409,6 +409,83 @@ class NavigationEKF:
 
         return self._state
 
+    def update_landmark(
+        self,
+        landmark_position: np.ndarray,
+        uncertainty: float,
+        landmark_covariance: Optional[np.ndarray] = None,
+    ) -> Optional["EKFState"]:
+        """Update EKF with semantic landmark position measurement.
+
+        Similar to GPS update but with typically higher uncertainty.
+        Used for position correction from detected landmarks.
+
+        Args:
+            landmark_position: Landmark position in NED [n, e, d]
+            uncertainty: Position uncertainty (1-sigma, meters)
+            landmark_covariance: Optional 3x3 covariance matrix
+
+        Returns:
+            Updated state or None if update rejected
+        """
+        if self._state is None:
+            logger.error("Cannot update: EKF not initialized")
+            return None
+
+        z = np.asarray(landmark_position)
+
+        # Build covariance if not provided
+        if landmark_covariance is None:
+            # Use provided uncertainty (higher than GPS typically)
+            landmark_covariance = np.diag([uncertainty**2] * 3)
+
+        # Position-only measurement
+        H = np.zeros((3, 15))
+        H[0:3, self.IDX_POS] = np.eye(3)
+
+        z_pred = self._state.position
+
+        # Innovation
+        y = z - z_pred
+
+        # Innovation covariance
+        S = H @ self._state.P @ H.T + landmark_covariance
+
+        # Outlier rejection with relaxed threshold for landmarks
+        try:
+            S_inv = np.linalg.inv(S)
+            mahal_dist = y.T @ S_inv @ y
+            # Use higher threshold for landmarks (less trusted than GPS)
+            landmark_threshold = self.config.mahalanobis_threshold * 2.0
+            if mahal_dist > landmark_threshold * 3:  # 3 DOF
+                logger.warning(
+                    f"Landmark update rejected: Mahalanobis distance {mahal_dist:.2f}"
+                )
+                return self._state
+        except np.linalg.LinAlgError:
+            logger.error("Singular landmark innovation covariance")
+            return self._state
+
+        # Kalman gain
+        K = self._state.P @ H.T @ S_inv
+
+        # State correction
+        dx = K @ y
+        self._apply_error_state_correction(dx)
+
+        # Covariance update (Joseph form)
+        I_KH = np.eye(15) - K @ H
+        self._state.P = I_KH @ self._state.P @ I_KH.T + K @ landmark_covariance @ K.T
+
+        self._enforce_covariance_bounds()
+
+        logger.debug(
+            f"Landmark update: position error {np.linalg.norm(y):.3f}m, "
+            f"uncertainty {uncertainty:.1f}m"
+        )
+
+        return self._state
+
     def _compute_state_transition(self, accel: np.ndarray, dt: float) -> np.ndarray:
         """Compute state transition matrix F for error-state propagation.
 

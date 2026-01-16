@@ -1,0 +1,199 @@
+<?xml version="1.0" ?>
+<!--
+  Terrain world for Phase 7 autonomous missions.
+  Generated terrain type: {{ terrain_type }}
+  {{ description }}
+
+  Usage:
+    python scripts/generate_terrain_world.py --terrain {{ terrain_type }} --num-drones {{ num_drones }}
+    gz sim -r worlds/terrain_{{ terrain_type }}_{{ num_drones }}.sdf
+-->
+<sdf version="1.9">
+  <world name="{{ terrain_type }}_world">
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Required system plugins -->
+    <plugin filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
+    </plugin>
+    <plugin filename="gz-sim-navsat-system"
+      name="gz::sim::systems::NavSat">
+    </plugin>
+
+    <!-- Scene settings -->
+    <scene>
+      <ambient>1.0 1.0 1.0</ambient>
+{% if terrain_type == "forest" %}
+      <background>0.5 0.7 0.9</background>
+{% elif terrain_type == "canyon" %}
+      <background>0.8 0.7 0.6</background>
+{% else %}
+      <background>0.6 0.7 0.8</background>
+{% endif %}
+      <sky></sky>
+    </scene>
+
+    <!-- GPS coordinates (ArduPilot default: Canberra, Australia) -->
+    <spherical_coordinates>
+      <latitude_deg>-35.363262</latitude_deg>
+      <longitude_deg>149.165237</longitude_deg>
+      <elevation>584</elevation>
+      <heading_deg>0</heading_deg>
+      <surface_model>EARTH_WGS84</surface_model>
+    </spherical_coordinates>
+
+    <!-- Lighting -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 100 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.8 0.8 0.8 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground plane -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>{{ size[0] }} {{ size[1] }}</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>{{ size[0] }} {{ size[1] }}</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>{{ ground_color[0] }} {{ ground_color[1] }} {{ ground_color[2] }} {{ ground_color[3] }}</ambient>
+            <diffuse>{{ ground_color[0] }} {{ ground_color[1] }} {{ ground_color[2] }} {{ ground_color[3] }}</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Reference axes for debugging -->
+    <model name="axes">
+      <static>true</static>
+      <link name="link">
+        <visual name="x_axis">
+          <cast_shadows>false</cast_shadows>
+          <pose>5 0 0.1 0 0 0</pose>
+          <geometry>
+            <box><size>10 0.05 0.05</size></box>
+          </geometry>
+          <material>
+            <ambient>1 0 0 0.8</ambient>
+            <diffuse>1 0 0 0.8</diffuse>
+          </material>
+        </visual>
+        <visual name="y_axis">
+          <cast_shadows>false</cast_shadows>
+          <pose>0 5 0.1 0 0 0</pose>
+          <geometry>
+            <box><size>0.05 10 0.05</size></box>
+          </geometry>
+          <material>
+            <ambient>0 1 0 0.8</ambient>
+            <diffuse>0 1 0 0.8</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ==================== OBSTACLES ==================== -->
+{% for obs in obstacles %}
+
+    <!-- {{ obs.name }} -->
+    <model name="{{ obs.name }}">
+      <static>true</static>
+      <pose>{{ obs.position[0] }} {{ obs.position[1] }} {{ obs.position[2] }} 0 0 0</pose>
+      <link name="link">
+{% if obs.collision %}
+        <collision name="collision">
+          <geometry>
+{% if obs.shape == "box" %}
+            <box>
+              <size>{{ obs.dimensions[0] }} {{ obs.dimensions[1] }} {{ obs.dimensions[2] }}</size>
+            </box>
+{% elif obs.shape == "cylinder" %}
+            <cylinder>
+              <radius>{{ obs.dimensions[0] }}</radius>
+              <length>{{ obs.dimensions[1] }}</length>
+            </cylinder>
+{% elif obs.shape == "sphere" %}
+            <sphere>
+              <radius>{{ obs.dimensions[0] }}</radius>
+            </sphere>
+{% endif %}
+          </geometry>
+        </collision>
+{% endif %}
+        <visual name="visual">
+          <geometry>
+{% if obs.shape == "box" %}
+            <box>
+              <size>{{ obs.dimensions[0] }} {{ obs.dimensions[1] }} {{ obs.dimensions[2] }}</size>
+            </box>
+{% elif obs.shape == "cylinder" %}
+            <cylinder>
+              <radius>{{ obs.dimensions[0] }}</radius>
+              <length>{{ obs.dimensions[1] }}</length>
+            </cylinder>
+{% elif obs.shape == "sphere" %}
+            <sphere>
+              <radius>{{ obs.dimensions[0] }}</radius>
+            </sphere>
+{% endif %}
+          </geometry>
+          <material>
+            <ambient>{{ obs.color[0] }} {{ obs.color[1] }} {{ obs.color[2] }} {{ obs.color[3] }}</ambient>
+            <diffuse>{{ obs.color[0] }} {{ obs.color[1] }} {{ obs.color[2] }} {{ obs.color[3] }}</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+{% endfor %}
+
+    <!-- ==================== DRONES ==================== -->
+{% for drone in drones %}
+
+    <!-- {{ drone.name }} (Instance {{ drone.instance_id }}) -->
+    <!-- MAVSDK port: {{ drone.mavsdk_port }}, FDM port: {{ drone.fdm_port }} -->
+    <include>
+      <uri>model://{{ drone.name }}</uri>
+      <name>{{ drone.name }}</name>
+      <pose>{{ drone.x }} {{ drone.y }} {{ drone.z }} 0 0 {{ drone.yaw }}</pose>
+    </include>
+{% endfor %}
+
+  </world>
+</sdf>
