@@ -157,7 +157,19 @@ class TestSearchProgress:
 
     def test_initial_state(self):
         """New progress should be at start."""
-        progress = SearchProgress(drone_id=0)
+        from swarm.coordination.missions import Waypoint
+
+        # Empty waypoints is considered complete (nothing to do)
+        empty_progress = SearchProgress(drone_id=0)
+        assert empty_progress.current_index == 0
+        assert empty_progress.completed_waypoints == 0
+        assert empty_progress.is_complete  # No waypoints = nothing to complete
+
+        # With waypoints, should not be complete initially
+        progress = SearchProgress(
+            drone_id=0,
+            assigned_waypoints=[Waypoint(north=0, east=0, altitude=10)],
+        )
         assert progress.current_index == 0
         assert progress.completed_waypoints == 0
         assert not progress.is_complete

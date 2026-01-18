@@ -69,7 +69,19 @@ class SITLLauncher:
             base_fdm_port: Base port for FDM (JSON) interface.
         """
         self.num_instances = num_instances
-        self.ardupilot_path = ardupilot_path or Path.home() / "ardupilot"
+        # Try Docker location first, then fall back to home directory
+        if ardupilot_path is None:
+            ardupilot_candidates = [
+                Path("/opt/ardupilot"),  # Docker container location
+                Path.home() / "ardupilot",  # Local installation
+            ]
+            for candidate in ardupilot_candidates:
+                if (candidate / "ArduCopter").exists():
+                    ardupilot_path = candidate
+                    break
+            if ardupilot_path is None:
+                ardupilot_path = Path.home() / "ardupilot"  # Fallback for error message
+        self.ardupilot_path = ardupilot_path
         self.base_udp_port = base_udp_port
         self.config = FleetConfig(
             num_drones=num_instances,
@@ -143,6 +155,13 @@ class SITLLauncher:
 
             # Use sim_vehicle.py with MAVProxy for UDP forwarding
             # This spawns xterm consoles and forwards MAVLink to UDP ports
+            # Each SITL needs unique SYSID_THISMAV for MAVSDK to distinguish drones
+            sysid = i + 1  # sysid 1, 2, 3, ...
+
+            # Create param file with unique SYSID
+            param_file = log_dir / f"sitl_{i}_params.parm"
+            param_file.write_text(f"SYSID_THISMAV {sysid}\n")
+
             cmd = [
                 "sim_vehicle.py",
                 "-v", "ArduCopter",
@@ -152,9 +171,10 @@ class SITLLauncher:
                 f"--out=udp:127.0.0.1:{udp_port}",
                 "--console",
                 "--no-rebuild",
+                f"--add-param-file={param_file}",
             ]
 
-            print(f"[Instance {i}] UDP port: {udp_port}, FDM port: {fdm_port}")
+            print(f"[Instance {i}] UDP port: {udp_port}, FDM port: {fdm_port}, SYSID: {sysid}")
 
             # Log files for debugging
             stdout_log = open(log_dir / f"sitl_{i}_stdout.log", "w")

@@ -16,29 +16,33 @@ class TestDroneConfig:
     def test_default_config(self):
         """Test default configuration values."""
         config = DroneConfig()
-        assert config.system_address == "udp://:14540"
+        # Default uses SITL native TCP port 5760
+        assert config.system_address == "tcpout://127.0.0.1:5760"
         assert config.instance_id == 0
         assert config.default_altitude == 10.0
         assert config.default_speed == 5.0
 
     def test_instance_config(self):
-        """Test config generation for different instances."""
+        """Test config generation for different instances.
+
+        ArduPilot SITL native TCP port scheme: 5760 + (instance * 10)
+        """
         config0 = DroneConfig.for_instance(0)
-        assert config0.system_address == "udp://:14540"
+        assert config0.system_address == "tcpout://127.0.0.1:5760"
         assert config0.instance_id == 0
 
         config1 = DroneConfig.for_instance(1)
-        assert config1.system_address == "udp://:14550"
+        assert config1.system_address == "tcpout://127.0.0.1:5770"
         assert config1.instance_id == 1
 
         config2 = DroneConfig.for_instance(2)
-        assert config2.system_address == "udp://:14560"
+        assert config2.system_address == "tcpout://127.0.0.1:5780"
         assert config2.instance_id == 2
 
     def test_custom_base_port(self):
         """Test config with custom base port."""
         config = DroneConfig.for_instance(0, base_port=15000)
-        assert config.system_address == "udp://:15000"
+        assert config.system_address == "tcpout://127.0.0.1:15000"
 
 
 class TestSwarmConfig:
@@ -51,14 +55,19 @@ class TestSwarmConfig:
         assert config.base_port == 14540
 
     def test_generate_drone_configs(self):
-        """Test generation of drone configs for swarm."""
+        """Test generation of drone configs for swarm.
+
+        SwarmConfig uses base_port (default 14540) for DroneConfig.for_instance().
+        Port scheme: base_port + (instance * 10)
+        """
         config = SwarmConfig(num_drones=3)
         drone_configs = config.get_drone_configs()
 
         assert len(drone_configs) == 3
-        assert drone_configs[0].system_address == "udp://:14540"
-        assert drone_configs[1].system_address == "udp://:14550"
-        assert drone_configs[2].system_address == "udp://:14560"
+        # Uses base_port 14540 with TCP connection scheme
+        assert drone_configs[0].system_address == "tcpout://127.0.0.1:14540"
+        assert drone_configs[1].system_address == "tcpout://127.0.0.1:14550"
+        assert drone_configs[2].system_address == "tcpout://127.0.0.1:14560"
 
 
 class TestDroneState:
@@ -107,7 +116,8 @@ class TestDroneInit:
         config = DroneConfig.for_instance(1)
         drone = Drone(config)
         assert drone.config.instance_id == 1
-        assert drone.config.system_address == "udp://:14550"
+        # Instance 1 uses port 5770 (5760 + 1*10)
+        assert drone.config.system_address == "tcpout://127.0.0.1:5770"
 
     def test_drone_repr(self):
         """Test drone string representation."""

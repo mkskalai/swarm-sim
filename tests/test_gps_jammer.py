@@ -223,8 +223,8 @@ class TestGPSJammer:
         zones = jammer.get_denial_zones_at((55.0, 50.0, 0.0))
         assert len(zones) == 2
 
-        # In zone 1 only
-        zones = jammer.get_denial_zones_at((30.0, 50.0, 0.0))
+        # In zone 1 only (distance 25 from zone 1 center, 35 from zone 2 center)
+        zones = jammer.get_denial_zones_at((25.0, 50.0, 0.0))
         assert len(zones) == 1
         assert zones[0].zone_id == 1
 

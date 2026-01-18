@@ -38,6 +38,21 @@ fi
 # GPU Detection
 # =============================================================================
 
+# =============================================================================
+# Build Mode Detection
+# =============================================================================
+
+if [ "$MINIMAL" = "true" ]; then
+    echo "[Docker] MINIMAL build - perception stack disabled"
+    echo "[Docker] Features unavailable: YOLO detection, PyTorch, video streaming"
+else
+    echo "[Docker] FULL build - all features available"
+fi
+
+# =============================================================================
+# GPU Detection
+# =============================================================================
+
 if command -v nvidia-smi &> /dev/null; then
     echo "[Docker] NVIDIA GPU detected"
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || true
@@ -48,7 +63,9 @@ if command -v nvidia-smi &> /dev/null; then
     export __NV_PRIME_RENDER_OFFLOAD=1
 else
     echo "[Docker] No NVIDIA GPU detected - using CPU rendering"
-    echo "[Docker] YOLO inference will use CPU (slower but functional)"
+    if [ "$MINIMAL" != "true" ]; then
+        echo "[Docker] YOLO inference will use CPU (slower but functional)"
+    fi
 fi
 
 # =============================================================================
@@ -57,11 +74,6 @@ fi
 
 if [ -n "$DISPLAY" ]; then
     echo "[Docker] Display: $DISPLAY"
-
-    # Fix X11 permissions if needed
-    if [ -f /home/swarm/.Xauthority ]; then
-        export XAUTHORITY=/home/swarm/.Xauthority
-    fi
 else
     echo "[Docker] No display - running headless"
     export QT_QPA_PLATFORM=offscreen

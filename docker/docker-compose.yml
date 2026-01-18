@@ -12,34 +12,27 @@
 #
 #   Run specific test:
 #     docker compose run --rm swarm python scripts/test_phase7.py --scenario standalone
+#
+#   Minimal image (no perception stack):
+#     docker compose --profile minimal up
 
 services:
   swarm:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        MINIMAL: "false"
     image: swarm-simulation:latest
     container_name: swarm-sim
 
-    # GPU support - falls back to CPU if NVIDIA runtime unavailable
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # NOTE: GPU support is NOT enabled by default (requires nvidia-container-toolkit)
+    # Use swarm-gpu profile for GPU acceleration, or set NVIDIA env vars manually
 
-    # Environment for X11 forwarding and GPU
+    # Environment for X11 forwarding
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
-      # EGL/OpenGL rendering
-      - __GLX_VENDOR_LIBRARY_NAME=nvidia
-      - __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
-      - __NV_PRIME_RENDER_OFFLOAD=1
 
     # X11 socket and auth for GUI
     volumes:
@@ -77,15 +70,30 @@ services:
       # Persist logs
       - ../logs:/app/logs:rw
 
-  # CI/CD profile - self-contained testing
+  # GPU-enabled development (requires nvidia-container-toolkit)
+  swarm-gpu:
+    extends:
+      service: swarm-dev
+    container_name: swarm-gpu
+    profiles:
+      - gpu
+    runtime: nvidia
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
+      - __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+      - __NV_PRIME_RENDER_OFFLOAD=1
+
+  # CI/CD profile - self-contained testing (no GPU)
   swarm-ci:
     extends:
       service: swarm
     container_name: swarm-ci
     profiles:
       - ci
-    # No GPU requirement for CI (CPU fallback)
-    deploy: {}
     # No display needed for headless tests
     environment:
       - DISPLAY=
@@ -105,3 +113,25 @@ services:
       - QT_QPA_PLATFORM=offscreen
       - GZ_SIM_HEADLESS_RENDERING=1
     command: ["python", "scripts/run_phase3_test.py", "--num-drones", "3"]
+
+  # Minimal profile - no perception stack (PyTorch, YOLO, OpenCV)
+  # Smaller image (~8-12GB vs ~15-20GB), good for pure simulation/control testing
+  swarm-minimal:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        MINIMAL: "true"
+    image: swarm-simulation:minimal
+    container_name: swarm-minimal
+    profiles:
+      - minimal
+    network_mode: host
+    stdin_open: true
+    tty: true
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY:-${HOME}/.Xauthority}:/home/swarm/.Xauthority:rw

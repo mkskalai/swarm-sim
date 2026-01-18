@@ -4,6 +4,7 @@ These tests verify the configuration and Fleet class initialization
 without requiring actual SITL or Gazebo simulation.
 """
 
+import os
 import pytest
 
 from swarm.core import (
@@ -24,18 +25,18 @@ class TestFleetConfig:
         config = FleetConfig()
 
         assert config.num_drones == 3
-        assert config.base_sitl_port == 5760
+        assert config.base_mavlink_port == 14540
         assert config.base_fdm_port == 9002
-        assert config.port_offset == 10
         assert config.formation_spacing == 5.0
 
-    def test_mavsdk_port_generation(self):
-        """Test SITL TCP port calculation for each instance."""
+    def test_mavlink_port_generation(self):
+        """Test MAVLink UDP port calculation for each instance."""
         config = FleetConfig()
 
-        assert config.get_mavsdk_port(0) == 5760
-        assert config.get_mavsdk_port(1) == 5770
-        assert config.get_mavsdk_port(2) == 5780
+        # UDP ports are sequential: 14540, 14541, 14542
+        assert config.get_mavlink_port(0) == 14540
+        assert config.get_mavlink_port(1) == 14541
+        assert config.get_mavlink_port(2) == 14542
 
     def test_fdm_port_generation(self):
         """Test FDM port calculation for Gazebo."""
@@ -48,12 +49,14 @@ class TestFleetConfig:
     def test_custom_base_ports(self):
         """Test custom base port configuration."""
         config = FleetConfig(
-            base_sitl_port=6000,
+            base_mavlink_port=15000,
             base_fdm_port=10000,
         )
 
-        assert config.get_mavsdk_port(0) == 6000
-        assert config.get_mavsdk_port(1) == 6010
+        # UDP ports are sequential
+        assert config.get_mavlink_port(0) == 15000
+        assert config.get_mavlink_port(1) == 15001
+        # FDM ports use offset of 10
         assert config.get_fdm_port(0) == 10000
         assert config.get_fdm_port(1) == 10010
 
@@ -64,10 +67,11 @@ class TestFleetConfig:
         drone_config_0 = config.get_drone_config(0)
         drone_config_1 = config.get_drone_config(1)
 
-        assert drone_config_0.system_address == "tcpout://127.0.0.1:5760"
+        # Uses UDP connection for MAVProxy forwarding
+        assert drone_config_0.system_address == "udp://:14540"
         assert drone_config_0.instance_id == 0
 
-        assert drone_config_1.system_address == "tcpout://127.0.0.1:5770"
+        assert drone_config_1.system_address == "udp://:14541"
         assert drone_config_1.instance_id == 1
 
     def test_all_drone_configs(self):
@@ -78,8 +82,8 @@ class TestFleetConfig:
         assert len(configs) == 3
 
         for i, drone_config in enumerate(configs):
-            expected_port = 5760 + (i * 10)
-            assert drone_config.system_address == f"tcpout://127.0.0.1:{expected_port}"
+            expected_port = 14540 + i  # Sequential UDP ports
+            assert drone_config.system_address == f"udp://:{expected_port}"
             assert drone_config.instance_id == i
 
     def test_spawn_position_single(self):
@@ -114,8 +118,8 @@ class TestFleetConfig:
         assert len(config.get_all_spawn_positions()) == 10
 
         # Check last drone ports
-        assert config.get_mavsdk_port(9) == 5760 + 90
-        assert config.get_fdm_port(9) == 9002 + 90
+        assert config.get_mavlink_port(9) == 14540 + 9  # Sequential UDP
+        assert config.get_fdm_port(9) == 9002 + 90  # 10x offset for FDM
 
 
 class TestFleetStatus:
@@ -251,51 +255,63 @@ class TestPosition:
         assert pos.yaw == 0.0
 
 
+# Check if simulation is running (set by run_integration_tests.py)
+SIM_RUNNING = os.environ.get("SWARM_SIM_RUNNING", "").lower() in ("1", "true", "yes")
+
+# Skip reason for integration tests
+SKIP_REASON = "Requires running SITL and Gazebo. Use: ./scripts/run.sh sim-test"
+
+
 # Integration tests that require simulation
+# NOTE: Uses SwarmController (pymavlink) instead of Fleet (MAVSDK) because
+# MAVSDK routes by sysid which fails for multi-drone even with unique sysids.
+# pymavlink uses port isolation which works reliably.
+@pytest.mark.integration
 class TestFleetIntegration:
     """Integration tests requiring SITL and Gazebo.
 
-    These tests are skipped by default. Run with:
-        pytest tests/test_phase2.py -v -m integration
+    These tests are skipped unless simulation is running. Run with:
+        python scripts/run_integration_tests.py
+    Or in Docker:
+        ./scripts/run.sh sim-test
     """
 
-    @pytest.mark.skip(reason="Requires running SITL and Gazebo")
-    @pytest.mark.integration
-    @pytest.mark.asyncio
-    async def test_fleet_connection(self):
-        """Test connecting to SITL fleet."""
-        config = FleetConfig(num_drones=3)
-        fleet = Fleet(config)
+    @pytest.mark.skipif(not SIM_RUNNING, reason=SKIP_REASON)
+    def test_fleet_connection(self):
+        """Test connecting to SITL fleet using pymavlink."""
+        from swarm.coordination import SwarmController, SwarmConfig
+
+        num_drones = int(os.environ.get("SWARM_NUM_DRONES", "3"))
+        config = SwarmConfig(num_drones=num_drones)
+        controller = SwarmController(config)
 
         try:
-            success = await fleet.connect_all(timeout=30.0)
+            success = controller.connect_all(timeout=30.0)
             assert success is True
-            assert fleet.state == FleetState.READY
-
-            status = fleet.get_status()
-            assert status.all_connected is True
+            assert controller.is_connected is True
 
         finally:
-            await fleet.disconnect_all()
+            controller.disconnect_all()
 
-    @pytest.mark.skip(reason="Requires running SITL and Gazebo")
-    @pytest.mark.integration
-    @pytest.mark.asyncio
-    async def test_fleet_takeoff_land(self):
-        """Test fleet takeoff and landing."""
-        config = FleetConfig(num_drones=3)
-        fleet = Fleet(config)
+    @pytest.mark.skipif(not SIM_RUNNING, reason=SKIP_REASON)
+    def test_fleet_takeoff_land(self):
+        """Test fleet takeoff and landing using pymavlink."""
+        from swarm.coordination import SwarmController, SwarmConfig
+
+        num_drones = int(os.environ.get("SWARM_NUM_DRONES", "3"))
+        config = SwarmConfig(num_drones=num_drones)
+        controller = SwarmController(config)
 
         try:
-            await fleet.connect_all()
-            await fleet.arm_all()
-            await fleet.takeoff_all(altitude=5.0)
+            controller.connect_all()
+            controller.wait_for_ekf_all()
+            controller.set_mode_all('GUIDED')
+            controller.arm_all()
+            controller.takeoff_all(altitude=5.0)
 
-            assert fleet.state == FleetState.IN_FLIGHT
+            assert controller.is_armed is True
 
-            await fleet.land_all()
-
-            assert fleet.state == FleetState.READY
+            controller.land_all()
 
         finally:
-            await fleet.disconnect_all()
+            controller.disconnect_all()

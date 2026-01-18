@@ -54,6 +54,9 @@ include = ["swarm*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "integration: marks tests that require running SITL and Gazebo simulation",
+]
 
 [tool.black]
 line-length = 100

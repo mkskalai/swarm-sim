@@ -41,8 +41,30 @@ logger = logging.getLogger(__name__)
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 WORLDS_DIR = PROJECT_ROOT / "worlds"
-ARDUPILOT_DIR = Path.home() / "ardupilot"
-ARDUPILOT_GAZEBO_DIR = Path.home() / "ardupilot_gazebo"
+
+# Try Docker location first, then fall back to home directory
+def find_ardupilot_dir():
+    candidates = [
+        Path("/opt/ardupilot"),  # Docker container location
+        Path.home() / "ardupilot",  # Local installation
+    ]
+    for candidate in candidates:
+        if (candidate / "ArduCopter").exists():
+            return candidate
+    return Path.home() / "ardupilot"  # Fallback for error message
+
+def find_ardupilot_gazebo_dir():
+    candidates = [
+        Path("/opt/ardupilot_gazebo"),  # Docker container location
+        Path.home() / "ardupilot_gazebo",  # Local installation
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return Path.home() / "ardupilot_gazebo"  # Fallback for error message
+
+ARDUPILOT_DIR = find_ardupilot_dir()
+ARDUPILOT_GAZEBO_DIR = find_ardupilot_gazebo_dir()
 
 
 def test_detector_standalone():

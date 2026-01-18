@@ -4,12 +4,20 @@
 # Build: docker compose build
 # Run:   docker compose --profile dev up
 #
-# Image size: ~15-20GB (ROS2 + Gazebo + ArduPilot are large)
+# Build variants:
+#   Full:    docker build -t swarm:full .                    (~15-20GB)
+#   Minimal: docker build -t swarm:minimal --build-arg MINIMAL=true .  (~8-12GB)
+#
+# Minimal excludes: PyTorch, YOLO, OpenCV, GStreamer (perception stack)
 
 # =============================================================================
 # Stage 1: Base image with system dependencies
 # =============================================================================
 FROM ubuntu:24.04 AS base
+
+# Build argument for minimal install (excludes perception stack)
+ARG MINIMAL=false
+ENV MINIMAL=${MINIMAL}
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -58,15 +66,22 @@ RUN apt-get update && apt-get install -y \
     gz-harmonic \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ROS2 Jazzy Desktop (full) + Gazebo bridge
+# Install ROS2 Jazzy + Gazebo bridge
+# Minimal: ros-base only, Full: desktop with cv-bridge and image transport
 RUN apt-get update && apt-get install -y \
-    ros-jazzy-desktop \
-    ros-jazzy-ros-gz-bridge \
-    ros-jazzy-ros-gz-image \
-    ros-jazzy-ros-gz-sim \
-    ros-jazzy-cv-bridge \
     python3-colcon-common-extensions \
     python3-rosdep \
+    ros-jazzy-ros-gz-bridge \
+    ros-jazzy-ros-gz-sim \
+    && if [ "$MINIMAL" = "false" ]; then \
+        apt-get install -y \
+            ros-jazzy-desktop \
+            ros-jazzy-ros-gz-image \
+            ros-jazzy-cv-bridge; \
+    else \
+        apt-get install -y \
+            ros-jazzy-ros-base; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Initialize rosdep
@@ -77,18 +92,50 @@ RUN rosdep init || true && rosdep update --rosdistro jazzy
 # =============================================================================
 FROM base AS ardupilot-builder
 
+# Re-declare ARG after FROM (ARGs don't persist across stages)
+ARG MINIMAL=false
+
 WORKDIR /build
+
+# Install ArduPilot build dependencies manually
+# (The install-prereqs-ubuntu.sh script has Python 2 deps that don't exist on Ubuntu 24.04)
+RUN apt-get update && apt-get install -y \
+    ccache \
+    g++ \
+    gawk \
+    make \
+    valgrind \
+    libtool \
+    libxml2-dev \
+    libxslt1-dev \
+    python3-numpy \
+    python3-pyparsing \
+    python3-psutil \
+    python3-matplotlib \
+    python3-serial \
+    python3-scipy \
+    python3-yaml \
+    python3-pip \
+    && if [ "$MINIMAL" = "false" ]; then \
+        apt-get install -y python3-opencv; \
+    fi \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python build dependencies for ArduPilot
+RUN pip3 install --break-system-packages --no-cache-dir \
+    future \
+    lxml \
+    pymavlink \
+    MAVProxy \
+    pexpect \
+    empy==3.3.4
 
 # Clone ArduPilot
 RUN git clone --depth 1 --branch Copter-4.5 https://github.com/ArduPilot/ardupilot.git \
     && cd ardupilot \
     && git submodule update --init --recursive --depth 1
 
-# Install ArduPilot prerequisites (this installs many packages)
-RUN cd ardupilot \
-    && Tools/environment_install/install-prereqs-ubuntu.sh -y
-
-# Build ArduPilot SITL
+# Build ArduPilot SITL (waf doesn't like running as root, but we can force it)
 RUN cd ardupilot \
     && ./waf configure --board sitl \
     && ./waf copter -j$(nproc)
@@ -98,18 +145,25 @@ RUN cd ardupilot \
 # =============================================================================
 FROM base AS gazebo-plugin-builder
 
+# Re-declare ARG after FROM
+ARG MINIMAL=false
+
 WORKDIR /build
 
 # Install plugin build dependencies
+# Minimal excludes OpenCV and GStreamer (video streaming)
 RUN apt-get update && apt-get install -y \
     libgz-sim8-dev \
     rapidjson-dev \
-    libopencv-dev \
-    libgstreamer1.0-dev \
-    libgstreamer-plugins-base1.0-dev \
-    gstreamer1.0-plugins-bad \
-    gstreamer1.0-libav \
-    gstreamer1.0-gl \
+    && if [ "$MINIMAL" = "false" ]; then \
+        apt-get install -y \
+            libopencv-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav \
+            gstreamer1.0-gl; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone and build ardupilot_gazebo
@@ -124,25 +178,27 @@ RUN git clone --depth 1 https://github.com/ArduPilot/ardupilot_gazebo.git \
 # =============================================================================
 FROM base AS final
 
-# Create non-root user for running simulations
-ARG USERNAME=swarm
-ARG USER_UID=1000
-ARG USER_GID=1000
-RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
-    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
-    && chmod 0440 /etc/sudoers.d/$USERNAME
+# Re-declare ARG after FROM
+ARG MINIMAL=false
+ENV MINIMAL=${MINIMAL}
+
+# Note: Running as root in container for simplicity
+# Container isolation provides security boundary
 
 # Install additional runtime dependencies
+# Minimal excludes OpenCV and GStreamer
 RUN apt-get update && apt-get install -y \
     libgz-sim8-dev \
     rapidjson-dev \
-    libopencv-dev \
-    gstreamer1.0-plugins-bad \
-    gstreamer1.0-libav \
-    gstreamer1.0-gl \
     python3-future \
     python3-lxml \
+    && if [ "$MINIMAL" = "false" ]; then \
+        apt-get install -y \
+            libopencv-dev \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav \
+            gstreamer1.0-gl; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy ArduPilot from builder stage
@@ -159,12 +215,22 @@ COPY requirements.txt /app/
 
 # Install Python dependencies
 # Use --break-system-packages since we're in a container
-RUN pip3 install --break-system-packages --no-cache-dir -r requirements.txt
+# Use --ignore-installed to skip Debian-managed packages that can't be uninstalled
+RUN pip3 install --break-system-packages --no-cache-dir --ignore-installed -r requirements.txt
+
+# Install ArduPilot Python dependencies (required for sim_vehicle.py)
+RUN pip3 install --break-system-packages --no-cache-dir --ignore-installed \
+    pymavlink \
+    MAVProxy \
+    pexpect \
+    empy==3.3.4
 
 # Install PyTorch with CUDA support (for YOLO GPU acceleration)
-# Falls back to CPU if no GPU available at runtime
-RUN pip3 install --break-system-packages --no-cache-dir \
-    torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Only in full build - minimal skips this (~5GB savings)
+RUN if [ "$MINIMAL" = "false" ]; then \
+        pip3 install --break-system-packages --no-cache-dir --ignore-installed \
+            torch torchvision --index-url https://download.pytorch.org/whl/cu121; \
+    fi
 
 # Copy project files
 COPY swarm/ /app/swarm/
@@ -189,9 +255,6 @@ RUN source /opt/ros/jazzy/setup.bash \
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Set ownership of app directory
-RUN chown -R $USERNAME:$USERNAME /app /opt/ardupilot /opt/ardupilot_gazebo
-
 # Environment variables
 ENV GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/ardupilot_gazebo/build
 ENV GZ_SIM_RESOURCE_PATH=/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds:/app/models:/app/worlds
@@ -199,8 +262,6 @@ ENV PYTHONPATH=/app:${PYTHONPATH}
 ENV PATH=/opt/ardupilot/Tools/autotest:${PATH}
 ENV SWARM_PROJECT_ROOT=/app
 
-# Switch to non-root user
-USER $USERNAME
 WORKDIR /app
 
 ENTRYPOINT ["/entrypoint.sh"]

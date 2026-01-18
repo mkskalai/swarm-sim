@@ -86,7 +86,16 @@ class ProcessManager:
                 print(f"Using generated world: {world_path}")
             elif num_drones <= 3:
                 # Use the tutorial multi-drone world from ardupilot_gazebo (has 3 drones)
-                world_path = Path.home() / "ardupilot_gazebo" / "worlds" / "tutorial_multi_drone.sdf"
+                # Try Docker location first
+                ag_candidates = [
+                    Path("/opt/ardupilot_gazebo"),
+                    Path.home() / "ardupilot_gazebo",
+                ]
+                for ag_path in ag_candidates:
+                    tutorial_world = ag_path / "worlds" / "tutorial_multi_drone.sdf"
+                    if tutorial_world.exists():
+                        world_path = tutorial_world
+                        break
             else:
                 # Need to generate a world for more drones
                 print(f"Generating world for {num_drones} drones...")
@@ -108,8 +117,18 @@ class ProcessManager:
         # Set up environment for Gazebo
         env = os.environ.copy()
 
-        # Add ardupilot_gazebo paths
-        ag_path = Path.home() / "ardupilot_gazebo"
+        # Add ardupilot_gazebo paths - try Docker location first
+        ag_candidates = [
+            Path("/opt/ardupilot_gazebo"),  # Docker container location
+            Path.home() / "ardupilot_gazebo",  # Local installation
+        ]
+        ag_path = None
+        for candidate in ag_candidates:
+            if candidate.exists():
+                ag_path = candidate
+                break
+        if ag_path is None:
+            ag_path = Path.home() / "ardupilot_gazebo"  # Fallback
         gz_plugin_path = env.get("GZ_SIM_SYSTEM_PLUGIN_PATH", "")
         gz_resource_path = env.get("GZ_SIM_RESOURCE_PATH", "")
 
@@ -180,12 +199,26 @@ class ProcessManager:
         Returns:
             True if all instances started successfully
         """
-        ardupilot_path = Path.home() / "ardupilot"
-        copter_path = ardupilot_path / "ArduCopter"
+        # Try Docker location first, then fall back to home directory
+        ardupilot_candidates = [
+            Path("/opt/ardupilot"),  # Docker container location
+            Path.home() / "ardupilot",  # Local installation
+        ]
 
-        if not copter_path.exists():
-            print(f"ERROR: ArduCopter not found at {copter_path}")
+        ardupilot_path = None
+        for candidate in ardupilot_candidates:
+            if (candidate / "ArduCopter").exists():
+                ardupilot_path = candidate
+                break
+
+        if ardupilot_path is None:
+            print("ERROR: ArduCopter not found in any of the following locations:")
+            for candidate in ardupilot_candidates:
+                print(f"  - {candidate / 'ArduCopter'}")
             return False
+
+        copter_path = ardupilot_path / "ArduCopter"
+        print(f"Using ArduPilot at: {ardupilot_path}")
 
         print(f"\nLaunching {num_instances} SITL instances with MAVProxy...")
 

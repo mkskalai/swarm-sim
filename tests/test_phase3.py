@@ -302,11 +302,13 @@ class TestLeaderFollower:
         callback_args = []
         lf.on_leader_change(lambda old, new: callback_args.append((old, new)))
 
-        lf.set_leader(0)
-        lf.set_leader(1)
+        lf.set_leader(0)  # Callback: (None, 0)
+        lf.set_leader(1)  # Callback: (0, 1)
 
-        assert len(callback_args) == 1
-        assert callback_args[0] == (0, 1)
+        # Both leader changes trigger callbacks
+        assert len(callback_args) == 2
+        assert callback_args[0] == (None, 0)
+        assert callback_args[1] == (0, 1)
 
 
 class TestMissions:

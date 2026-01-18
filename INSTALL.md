@@ -19,6 +19,43 @@ Complete setup guide for the Drone Swarm Simulation Platform. Follow these steps
 
 ---
 
+## Docker Installation (Alternative)
+
+For containerized deployment, see [docker/README.md](docker/README.md). Docker requirements:
+
+- Docker Engine 24.0+
+- Docker Compose v2.20+
+
+### NVIDIA Container Toolkit (Optional)
+
+**Skip this if:** You don't have an NVIDIA GPU, or you're fine with CPU-only mode (YOLO will be ~10x slower but functional).
+
+**Required for:** GPU-accelerated YOLO inference and Gazebo rendering inside Docker containers.
+
+```bash
+# Configure the repository
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+# Install the toolkit
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+
+# Configure Docker to use NVIDIA runtime
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+
+# Verify installation
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+```
+
+Reference: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+
+---
+
 ## Step 1: System Prerequisites
 
 ```bash

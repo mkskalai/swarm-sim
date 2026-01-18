@@ -28,6 +28,19 @@ cd docker
 
 First build takes 30-45 minutes (ArduPilot compilation). Subsequent builds use cached layers.
 
+#### Minimal Build (No Perception Stack)
+
+For smaller images without YOLO/PyTorch/OpenCV (~8-12GB instead of ~15-20GB):
+
+```bash
+./scripts/build.sh minimal
+# OR
+docker build -t swarm:minimal --build-arg MINIMAL=true -f docker/Dockerfile .
+```
+
+Minimal build includes: Gazebo, ArduPilot, plugins, ROS2 (base)
+Minimal build excludes: PyTorch, YOLO, OpenCV, GStreamer, cv-bridge, ros-gz-image
+
 ### 2. Run
 
 **Interactive shell:**
@@ -70,7 +83,7 @@ python scripts/run_phase3_test.py --num-drones 3 --skip-test
 
 ### CI/CD Mode (`ci`)
 
-Self-contained test execution with no external dependencies:
+Self-contained unit test execution (headless, no GPU):
 
 ```bash
 ./scripts/run.sh ci
@@ -79,6 +92,43 @@ Self-contained test execution with no external dependencies:
 Or run specific tests:
 ```bash
 ./scripts/run.sh test tests/test_navigation.py
+```
+
+### Testing Modes
+
+**Unit tests (CPU, headless):**
+```bash
+./scripts/run.sh ci                    # All unit tests
+./scripts/run.sh test tests/           # All tests
+./scripts/run.sh test tests/test_navigation.py  # Specific file
+```
+
+**Unit tests (GPU):**
+```bash
+./scripts/run.sh test-gpu tests/       # All tests with GPU
+./scripts/run.sh test-gpu tests/test_perception.py  # Perception tests with GPU
+```
+
+**Integration tests with simulation stack:**
+```bash
+./scripts/run.sh sim-test              # Start sim, run tests, cleanup (3 drones)
+./scripts/run.sh sim-test 6            # Same with 6 drones
+./scripts/run.sh sim-test-gpu 3        # Integration tests with GPU
+./scripts/run.sh sim-test-headless 3   # Headless (no GUI) simulation tests
+```
+
+The `sim-test` modes automatically:
+1. Generate the world file for N drones
+2. Start Gazebo with the multi-drone world
+3. Launch SITL instances for each drone
+4. Wait for EKF convergence
+5. Run integration tests marked with `@pytest.mark.integration`
+6. Clean up all processes
+
+**Legacy integration test commands** (require manually starting SITL+Gazebo first):
+```bash
+./scripts/run.sh integration           # Integration tests (CPU)
+./scripts/run.sh integration-gpu       # Integration tests (GPU)
 ```
 
 ### Headless Mode (`headless`)
@@ -91,16 +141,31 @@ Run simulation without GUI (for servers):
 
 ## GPU Support
 
-The container automatically detects NVIDIA GPUs and uses them for:
-- Gazebo rendering
-- YOLO inference (10x faster than CPU)
+GPU support is **optional**. Without nvidia-container-toolkit, the container runs in CPU mode (YOLO ~10x slower but functional).
 
-If no GPU is available, it gracefully falls back to CPU.
+### Running with GPU (requires nvidia-container-toolkit)
+
+```bash
+# Use the gpu profile for GPU-accelerated development
+./scripts/run.sh gpu
+
+# Or via docker compose directly
+docker compose -f docker/docker-compose.yml --profile gpu run --rm swarm-gpu
+```
+
+### Running without GPU (default)
+
+All other profiles (`dev`, `ci`, `headless`) work without GPU:
+
+```bash
+./scripts/run.sh dev   # CPU mode
+./scripts/run.sh ci    # CPU mode, headless tests
+```
 
 ### Verify GPU access:
 
 ```bash
-docker compose -f docker/docker-compose.yml run --rm swarm nvidia-smi
+docker compose -f docker/docker-compose.yml --profile gpu run --rm swarm-gpu nvidia-smi
 ```
 
 ### Check YOLO GPU:
@@ -177,6 +242,17 @@ docker compose -f docker/docker-compose.yml run --rm swarm \
 xhost +local:docker
 ```
 
+### Container can't find NVIDIA runtime
+
+If you get "could not select device driver with capabilities: [[gpu]]":
+
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+This configures Docker to use the NVIDIA container runtime.
+
 ### NVIDIA driver mismatch
 
 Ensure host driver matches container CUDA version:
@@ -246,6 +322,7 @@ The container uses `network_mode: host` to simplify MAVLink port exposure:
 
 ## Image Size
 
+### Full Build
 | Component | Size |
 |-----------|------|
 | Ubuntu 24.04 base | ~80MB |
@@ -254,4 +331,18 @@ The container uses `network_mode: host` to simplify MAVLink port exposure:
 | ArduPilot SITL | ~1GB |
 | ardupilot_gazebo | ~100MB |
 | Python + PyTorch/YOLO | ~5GB |
-| **Total** | **~12-15GB** |
+| OpenCV + GStreamer | ~1GB |
+| **Total** | **~15-20GB** |
+
+### Minimal Build
+| Component | Size |
+|-----------|------|
+| Ubuntu 24.04 base | ~80MB |
+| ROS2 Jazzy Base | ~1GB |
+| Gazebo Harmonic | ~2GB |
+| ArduPilot SITL | ~1GB |
+| ardupilot_gazebo | ~100MB |
+| Python (core deps only) | ~500MB |
+| **Total** | **~8-12GB** |
+
+Build minimal with: `./scripts/build.sh minimal`
