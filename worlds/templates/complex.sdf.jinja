@@ -1,0 +1,338 @@
+<?xml version="1.0" ?>
+<!--
+  Complex world for full stack testing with perception targets.
+  Includes people and vehicles for YOLO detection testing.
+  Generated with {{ num_drones }} drones in {{ layout | default('grid') }} layout.
+
+  Usage:
+    python scripts/run_tests.py --sim -n {{ num_drones }} --world complex
+-->
+<sdf version="1.9">
+  <world name="complex_world">
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>{{ real_time_factor | default(1.0) }}</real_time_factor>
+    </physics>
+
+    <!-- Required system plugins -->
+    <plugin filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin filename="gz-sim-imu-system"
+      name="gz::sim::systems::Imu">
+    </plugin>
+    <plugin filename="gz-sim-navsat-system"
+      name="gz::sim::systems::NavSat">
+    </plugin>
+
+    <!-- Scene settings -->
+    <scene>
+      <ambient>1.0 1.0 1.0</ambient>
+      <background>0.6 0.8 1.0</background>
+      <sky></sky>
+    </scene>
+
+    <!-- GPS coordinates (ArduPilot default: Canberra, Australia) -->
+    <spherical_coordinates>
+      <latitude_deg>-35.363262</latitude_deg>
+      <longitude_deg>149.165237</longitude_deg>
+      <elevation>584</elevation>
+      <heading_deg>0</heading_deg>
+      <surface_model>EARTH_WGS84</surface_model>
+    </spherical_coordinates>
+
+    <!-- Lighting -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 100 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.8 0.8 0.8 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground plane -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>200 200</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>200 200</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.4 0.5 0.35 1</ambient>
+            <diffuse>0.4 0.5 0.35 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Reference axes for debugging -->
+    <model name="axes">
+      <static>true</static>
+      <link name="link">
+        <visual name="x_axis">
+          <cast_shadows>false</cast_shadows>
+          <pose>5 0 0.1 0 0 0</pose>
+          <geometry>
+            <box><size>10 0.05 0.05</size></box>
+          </geometry>
+          <material>
+            <ambient>1 0 0 0.8</ambient>
+            <diffuse>1 0 0 0.8</diffuse>
+          </material>
+        </visual>
+        <visual name="y_axis">
+          <cast_shadows>false</cast_shadows>
+          <pose>0 5 0.1 0 0 0</pose>
+          <geometry>
+            <box><size>0.05 10 0.05</size></box>
+          </geometry>
+          <material>
+            <ambient>0 1 0 0.8</ambient>
+            <diffuse>0 1 0 0.8</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ==================== DRONES ==================== -->
+{% for drone in drones %}
+    <!-- {{ drone.name }} (Instance {{ drone.instance_id }}) - MAVLink port: {{ drone.mavlink_port }}, FDM port: {{ drone.fdm_port }} -->
+    <include>
+      <uri>model://{{ drone.name }}</uri>
+      <name>{{ drone.name }}</name>
+      <pose>{{ drone.x }} {{ drone.y }} {{ drone.z }} 0 0 {{ drone.yaw }}</pose>
+    </include>
+{% endfor %}
+
+    <!-- ==================== PEOPLE (Targets for Detection) ==================== -->
+
+    <!-- Person 1: Blue shirt, standing near origin -->
+    <model name="person_1">
+      <static>true</static>
+      <pose>15 5 0 0 0 0</pose>
+      <link name="body">
+        <visual name="torso">
+          <pose>0 0 0.9 0 0 0</pose>
+          <geometry><cylinder><radius>0.25</radius><length>0.6</length></cylinder></geometry>
+          <material><ambient>0.2 0.3 0.6 1</ambient><diffuse>0.2 0.3 0.6 1</diffuse></material>
+        </visual>
+        <visual name="head">
+          <pose>0 0 1.35 0 0 0</pose>
+          <geometry><sphere><radius>0.15</radius></sphere></geometry>
+          <material><ambient>0.9 0.75 0.6 1</ambient><diffuse>0.9 0.75 0.6 1</diffuse></material>
+        </visual>
+        <visual name="left_leg">
+          <pose>-0.1 0 0.4 0 0 0</pose>
+          <geometry><cylinder><radius>0.08</radius><length>0.8</length></cylinder></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+        <visual name="right_leg">
+          <pose>0.1 0 0.4 0 0 0</pose>
+          <geometry><cylinder><radius>0.08</radius><length>0.8</length></cylinder></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Person 2: Red shirt -->
+    <model name="person_2">
+      <static>true</static>
+      <pose>-8 12 0 0 0 0.7</pose>
+      <link name="body">
+        <visual name="torso">
+          <pose>0 0 0.9 0 0 0</pose>
+          <geometry><cylinder><radius>0.25</radius><length>0.6</length></cylinder></geometry>
+          <material><ambient>0.7 0.2 0.2 1</ambient><diffuse>0.7 0.2 0.2 1</diffuse></material>
+        </visual>
+        <visual name="head">
+          <pose>0 0 1.35 0 0 0</pose>
+          <geometry><sphere><radius>0.15</radius></sphere></geometry>
+          <material><ambient>0.9 0.75 0.6 1</ambient><diffuse>0.9 0.75 0.6 1</diffuse></material>
+        </visual>
+        <visual name="left_leg">
+          <pose>-0.1 0 0.4 0 0 0</pose>
+          <geometry><cylinder><radius>0.08</radius><length>0.8</length></cylinder></geometry>
+          <material><ambient>0.2 0.2 0.4 1</ambient><diffuse>0.2 0.2 0.4 1</diffuse></material>
+        </visual>
+        <visual name="right_leg">
+          <pose>0.1 0 0.4 0 0 0</pose>
+          <geometry><cylinder><radius>0.08</radius><length>0.8</length></cylinder></geometry>
+          <material><ambient>0.2 0.2 0.4 1</ambient><diffuse>0.2 0.2 0.4 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Person 3: Green shirt -->
+    <model name="person_3">
+      <static>true</static>
+      <pose>20 -8 0 0 0 -1.2</pose>
+      <link name="body">
+        <visual name="torso">
+          <pose>0 0 0.9 0 0 0</pose>
+          <geometry><cylinder><radius>0.25</radius><length>0.6</length></cylinder></geometry>
+          <material><ambient>0.3 0.5 0.3 1</ambient><diffuse>0.3 0.5 0.3 1</diffuse></material>
+        </visual>
+        <visual name="head">
+          <pose>0 0 1.35 0 0 0</pose>
+          <geometry><sphere><radius>0.15</radius></sphere></geometry>
+          <material><ambient>0.9 0.75 0.6 1</ambient><diffuse>0.9 0.75 0.6 1</diffuse></material>
+        </visual>
+        <visual name="left_leg">
+          <pose>-0.1 0 0.4 0 0 0</pose>
+          <geometry><cylinder><radius>0.08</radius><length>0.8</length></cylinder></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+        <visual name="right_leg">
+          <pose>0.1 0 0.4 0 0 0</pose>
+          <geometry><cylinder><radius>0.08</radius><length>0.8</length></cylinder></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ==================== VEHICLES ==================== -->
+
+    <!-- Truck 1: Red pickup truck -->
+    <model name="truck_1">
+      <static>true</static>
+      <pose>-15 -10 0 0 0 0.3</pose>
+      <link name="body">
+        <visual name="cab">
+          <pose>1.2 0 0.8 0 0 0</pose>
+          <geometry><box><size>1.5 2.0 1.4</size></box></geometry>
+          <material><ambient>0.6 0.1 0.1 1</ambient><diffuse>0.6 0.1 0.1 1</diffuse></material>
+        </visual>
+        <visual name="bed">
+          <pose>-1.0 0 0.5 0 0 0</pose>
+          <geometry><box><size>3.0 2.0 0.8</size></box></geometry>
+          <material><ambient>0.5 0.1 0.1 1</ambient><diffuse>0.5 0.1 0.1 1</diffuse></material>
+        </visual>
+        <visual name="wheel_fl">
+          <pose>1.5 1.0 0.35 1.57 0 0</pose>
+          <geometry><cylinder><radius>0.35</radius><length>0.2</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+        </visual>
+        <visual name="wheel_fr">
+          <pose>1.5 -1.0 0.35 1.57 0 0</pose>
+          <geometry><cylinder><radius>0.35</radius><length>0.2</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+        </visual>
+        <visual name="wheel_rl">
+          <pose>-1.5 1.0 0.35 1.57 0 0</pose>
+          <geometry><cylinder><radius>0.35</radius><length>0.2</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+        </visual>
+        <visual name="wheel_rr">
+          <pose>-1.5 -1.0 0.35 1.57 0 0</pose>
+          <geometry><cylinder><radius>0.35</radius><length>0.2</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Truck 2: Blue truck -->
+    <model name="truck_2">
+      <static>true</static>
+      <pose>25 15 0 0 0 2.1</pose>
+      <link name="body">
+        <visual name="cab">
+          <pose>1.2 0 0.8 0 0 0</pose>
+          <geometry><box><size>1.5 2.0 1.4</size></box></geometry>
+          <material><ambient>0.1 0.2 0.5 1</ambient><diffuse>0.1 0.2 0.5 1</diffuse></material>
+        </visual>
+        <visual name="bed">
+          <pose>-1.0 0 0.5 0 0 0</pose>
+          <geometry><box><size>3.0 2.0 0.8</size></box></geometry>
+          <material><ambient>0.1 0.15 0.4 1</ambient><diffuse>0.1 0.15 0.4 1</diffuse></material>
+        </visual>
+        <visual name="wheel_fl">
+          <pose>1.5 1.0 0.35 1.57 0 0</pose>
+          <geometry><cylinder><radius>0.35</radius><length>0.2</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+        </visual>
+        <visual name="wheel_fr">
+          <pose>1.5 -1.0 0.35 1.57 0 0</pose>
+          <geometry><cylinder><radius>0.35</radius><length>0.2</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+        </visual>
+        <visual name="wheel_rl">
+          <pose>-1.5 1.0 0.35 1.57 0 0</pose>
+          <geometry><cylinder><radius>0.35</radius><length>0.2</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+        </visual>
+        <visual name="wheel_rr">
+          <pose>-1.5 -1.0 0.35 1.57 0 0</pose>
+          <geometry><cylinder><radius>0.35</radius><length>0.2</length></cylinder></geometry>
+          <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ==================== BUILDINGS ==================== -->
+
+    <!-- Building 1: Simple warehouse -->
+    <model name="building_1">
+      <static>true</static>
+      <pose>-25 25 0 0 0 0</pose>
+      <link name="structure">
+        <visual name="main">
+          <pose>0 0 4 0 0 0</pose>
+          <geometry><box><size>10 15 8</size></box></geometry>
+          <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse></material>
+        </visual>
+        <visual name="roof">
+          <pose>0 0 8.25 0 0 0</pose>
+          <geometry><box><size>11 16 0.5</size></box></geometry>
+          <material><ambient>0.3 0.2 0.2 1</ambient><diffuse>0.3 0.2 0.2 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Building 2: Small office -->
+    <model name="building_2">
+      <static>true</static>
+      <pose>30 -25 0 0 0 0.5</pose>
+      <link name="structure">
+        <visual name="main">
+          <pose>0 0 3 0 0 0</pose>
+          <geometry><box><size>8 8 6</size></box></geometry>
+          <material><ambient>0.6 0.55 0.45 1</ambient><diffuse>0.6 0.55 0.45 1</diffuse></material>
+        </visual>
+        <visual name="roof">
+          <pose>0 0 6.25 0 0 0</pose>
+          <geometry><box><size>9 9 0.5</size></box></geometry>
+          <material><ambient>0.25 0.25 0.3 1</ambient><diffuse>0.25 0.25 0.3 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

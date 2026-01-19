@@ -1,7 +1,7 @@
 """Coordination modules for swarm behaviors.
 
 This package provides:
-- Formation flying (line, V, grid, triangle, circle, diamond)
+- Formation flying (line, grid, star)
 - Leader-follower mode with automatic leader promotion
 - Waypoint mission planning and execution
 - Failure detection and graceful degradation
@@ -46,6 +46,21 @@ from .swarm_controller import (
     SwarmConfig,
 )
 
+from .search_patterns import (
+    SearchPatternGenerator,
+    SearchPatternType,
+    SearchPatternConfig,
+    SearchProgress,
+    AdaptiveSearchController,
+)
+
+from .pursuit_controller import (
+    PursuitController,
+    PursuitStrategy,
+    PursuitConfig,
+    SimulatedTarget,
+)
+
 __all__ = [
     # Formations
     "FormationType",
@@ -75,4 +90,15 @@ __all__ = [
     # Controller
     "SwarmController",
     "SwarmConfig",
+    # Search Patterns
+    "SearchPatternGenerator",
+    "SearchPatternType",
+    "SearchPatternConfig",
+    "SearchProgress",
+    "AdaptiveSearchController",
+    # Pursuit
+    "PursuitController",
+    "PursuitStrategy",
+    "PursuitConfig",
+    "SimulatedTarget",
 ]

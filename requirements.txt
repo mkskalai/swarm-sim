@@ -6,22 +6,24 @@
 
 # Core dependencies
 pymavlink>=2.4.49       # MAVLink communication with ArduPilot SITL
-mavsdk>=3.10.0          # High-level MAVLink SDK (used in Phase 1)
-numpy==1.26.4            # Numerical operations
+numpy==1.26.4           # Numerical operations
 jinja2>=3.1.0           # World file templating
-opencv-python==4.10.0.84  # Image processing (Phase 5)
+opencv-python>=4.10.0   # Image processing
+
+# ArduPilot SITL dependencies (required for sim_vehicle.py)
+MAVProxy>=1.8.0         # MAVLink proxy for SITL
+pexpect>=4.8.0          # Process interaction for SITL
+empy==3.3.4             # Template engine for ArduPilot
+lark>=1.1.0             # Parser (empy/ROS2 dependency)
 
 # Testing
 pytest>=9.0.0           # Test framework
 pytest-asyncio>=1.0.0   # Async test support
 
-# Vision / Perception (Phase 5)
-# Note: These are large packages (~2GB total with PyTorch)
-# Install separately if needed: pip install ultralytics opencv-python
+# Vision / Perception
 ultralytics>=8.0.0      # YOLOv11 object detection
-opencv-python>=4.8.0    # Image processing
 
-# Navigation / GPS-Denied (Phase 6)
+# Navigation / GPS-Denied
 scipy>=1.11.0           # EKF matrix operations
 
 # Optional: Development tools

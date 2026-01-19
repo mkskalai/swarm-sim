@@ -2,6 +2,10 @@
 
 Provides mathematical generators for various formation patterns that scale
 to any number of drones. All positions are in NED (North-East-Down) frame.
+
+Available formations:
+- LINE: Drones in a straight line along the East axis
+- GRID: Rectangular grid pattern (default)
 """
 
 import math
@@ -16,11 +20,7 @@ PositionNED = Tuple[float, float, float]
 class FormationType(Enum):
     """Available formation types."""
     LINE = "line"
-    V_FORMATION = "v"
-    TRIANGLE = "triangle"
     GRID = "grid"
-    CIRCLE = "circle"
-    DIAMOND = "diamond"
 
 
 @dataclass
@@ -32,13 +32,11 @@ class FormationConfig:
         altitude: Base altitude for formation (meters, positive = up)
         altitude_separation: Vertical offset between drones to prevent collision
         heading: Formation heading rotation (degrees, 0=North)
-        v_angle: Angle for V formation wings (degrees from centerline)
     """
     spacing: float = 5.0
     altitude: float = 10.0
     altitude_separation: float = 2.0
     heading: float = 0.0
-    v_angle: float = 45.0
 
 
 class FormationCalculator:
@@ -49,7 +47,7 @@ class FormationCalculator:
 
     Example:
         calc = FormationCalculator()
-        positions = calc.calculate(FormationType.V_FORMATION, num_drones=6)
+        positions = calc.calculate(FormationType.GRID, num_drones=6)
         for i, (n, e, d) in enumerate(positions):
             print(f"Drone {i}: N={n:.1f}, E={e:.1f}, Alt={-d:.1f}m")
     """
@@ -80,11 +78,7 @@ class FormationCalculator:
 
         calculators = {
             FormationType.LINE: self._line_formation,
-            FormationType.V_FORMATION: self._v_formation,
-            FormationType.TRIANGLE: self._triangle_formation,
             FormationType.GRID: self._grid_formation,
-            FormationType.CIRCLE: self._circle_formation,
-            FormationType.DIAMOND: self._diamond_formation,
         }
 
         positions = calculators[formation_type](num_drones, cfg)
@@ -96,80 +90,25 @@ class FormationCalculator:
         """Line formation along East axis.
 
         Drones are centered around origin, spread evenly along East axis.
+        All drones at same altitude (no vertical separation in line).
         """
         positions = []
         center_offset = (num_drones - 1) / 2
 
         for i in range(num_drones):
             east = (i - center_offset) * cfg.spacing
-            down = -(cfg.altitude + i * cfg.altitude_separation)
+            down = -cfg.altitude
             positions.append((0.0, east, down))
-
-        return positions
-
-    def _v_formation(
-        self, num_drones: int, cfg: FormationConfig
-    ) -> List[PositionNED]:
-        """V formation (like flying geese).
-
-        Drone 0 at apex (front), others alternate left/right on wings.
-        """
-        positions = [(0.0, 0.0, -cfg.altitude)]  # Leader at apex
-
-        if num_drones == 1:
-            return positions
-
-        angle_rad = math.radians(cfg.v_angle)
-
-        for i in range(1, num_drones):
-            wing = (i + 1) // 2  # 1, 1, 2, 2, 3, 3, ...
-            side = 1 if i % 2 == 1 else -1  # Alternate right/left
-
-            # Drones trail behind leader (negative north)
-            north = -wing * cfg.spacing * math.cos(angle_rad)
-            east = side * wing * cfg.spacing * math.sin(angle_rad)
-            down = -(cfg.altitude + i * cfg.altitude_separation)
-
-            positions.append((north, east, down))
-
-        return positions
-
-    def _triangle_formation(
-        self, num_drones: int, cfg: FormationConfig
-    ) -> List[PositionNED]:
-        """Triangular formation (equilateral, pointing North).
-
-        Builds rows from front to back. Row 0 has 1 drone (apex),
-        row 1 has 2 drones, row 2 has 3, etc.
-        """
-        positions = []
-        row = 0
-        idx = 0
-
-        while idx < num_drones:
-            drones_in_row = row + 1
-            row_width = (drones_in_row - 1) * cfg.spacing
-            row_start_east = -row_width / 2
-            row_north = -row * cfg.spacing * math.sqrt(3) / 2
-
-            for col in range(drones_in_row):
-                if idx >= num_drones:
-                    break
-                east = row_start_east + col * cfg.spacing
-                down = -(cfg.altitude + idx * cfg.altitude_separation)
-                positions.append((row_north, east, down))
-                idx += 1
-
-            row += 1
 
         return positions
 
     def _grid_formation(
         self, num_drones: int, cfg: FormationConfig
     ) -> List[PositionNED]:
-        """Rectangular grid formation.
+        """Rectangular grid formation (default).
 
         Creates a roughly square grid, centered at origin.
+        Drones have slight altitude separation for safety.
         """
         cols = math.ceil(math.sqrt(num_drones))
         rows = math.ceil(num_drones / cols)
@@ -192,68 +131,6 @@ class FormationCalculator:
 
                 positions.append((north, east, down))
                 idx += 1
-
-        return positions
-
-    def _circle_formation(
-        self, num_drones: int, cfg: FormationConfig
-    ) -> List[PositionNED]:
-        """Circle formation.
-
-        Drones evenly spaced around a circle. Radius calculated to maintain
-        spacing between adjacent drones.
-        """
-        if num_drones == 1:
-            return [(0.0, 0.0, -cfg.altitude)]
-
-        # Calculate radius to achieve desired spacing between adjacent drones
-        # Arc length = spacing, so: 2*pi*r / n = spacing -> r = spacing * n / (2*pi)
-        radius = cfg.spacing * num_drones / (2 * math.pi)
-        positions = []
-
-        for i in range(num_drones):
-            angle = 2 * math.pi * i / num_drones
-            north = radius * math.cos(angle)
-            east = radius * math.sin(angle)
-            down = -(cfg.altitude + i * cfg.altitude_separation)
-            positions.append((north, east, down))
-
-        return positions
-
-    def _diamond_formation(
-        self, num_drones: int, cfg: FormationConfig
-    ) -> List[PositionNED]:
-        """Diamond formation (rhombus shape).
-
-        4-point diamond with apex front, wings at sides, tail at rear.
-        Additional drones extend the wings.
-        """
-        if num_drones < 4:
-            return self._v_formation(num_drones, cfg)
-
-        positions = []
-
-        # Apex (front)
-        positions.append((cfg.spacing, 0.0, -cfg.altitude))
-
-        # Left wing
-        positions.append((0.0, -cfg.spacing, -(cfg.altitude + cfg.altitude_separation)))
-
-        # Right wing
-        positions.append((0.0, cfg.spacing, -(cfg.altitude + 2 * cfg.altitude_separation)))
-
-        # Tail
-        positions.append((-cfg.spacing, 0.0, -(cfg.altitude + 3 * cfg.altitude_separation)))
-
-        # Additional drones extend the wings outward
-        for i in range(4, num_drones):
-            wing_pos = (i - 4) // 2 + 2  # 2, 2, 3, 3, 4, 4, ...
-            side = -1 if i % 2 == 0 else 1  # Alternate left/right
-
-            north = -wing_pos * cfg.spacing / 3
-            east = side * wing_pos * cfg.spacing
-            down = -(cfg.altitude + i * cfg.altitude_separation)
-            positions.append((north, east, down))
 
         return positions
 
@@ -294,7 +171,7 @@ class FormationTransition:
     Example:
         transition = FormationTransition(
             start_positions=calc.calculate(FormationType.LINE, 3),
-            end_positions=calc.calculate(FormationType.V_FORMATION, 3),
+            end_positions=calc.calculate(FormationType.GRID, 3),
             duration=5.0
         )
 
@@ -359,7 +236,7 @@ def get_formation_positions(
         List of (north, east, down) positions
 
     Example:
-        positions = get_formation_positions(FormationType.V_FORMATION, 6)
+        positions = get_formation_positions(FormationType.LINE, 6)
     """
     config = FormationConfig(
         spacing=spacing,

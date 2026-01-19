@@ -43,7 +43,17 @@ if [ -d "$VENV_PATH" ]; then
     echo "Activating Python venv: $VENV_PATH"
     source "$VENV_PATH/bin/activate"
 else
-    echo "Warning: Python venv not found at $VENV_PATH"
+    echo "Python venv not found at $VENV_PATH - creating it..."
+    python3 -m venv "$VENV_PATH"
+    source "$VENV_PATH/bin/activate"
+    pip install --upgrade pip
+
+    # Install project dependencies if requirements.txt exists
+    if [ -f "${PROJECT_ROOT}/requirements.txt" ]; then
+        echo "Installing Python dependencies from requirements.txt..."
+        pip install -r "${PROJECT_ROOT}/requirements.txt"
+    fi
+    echo "Venv created and dependencies installed!"
 fi
 
 # ROS2 Jazzy (optional - comment out if not using ROS2)
@@ -87,22 +97,12 @@ echo "NOTE: If project path has spaces, use symlink: ln -s \"${PROJECT_ROOT}\" ~
 echo ""
 echo "Quick start commands:"
 echo ""
-echo "  # Multi-drone simulation (Terminal 1):"
-echo "  python scripts/run_phase3_test.py --num-drones 3 --skip-test"
+echo "  # Run unit tests (no simulation required):"
+echo "  python scripts/run_tests.py --unit"
 echo ""
-echo "  # ROS2 bridge (Terminal 2, after simulation ready):"
-echo "  ros2 launch swarm_ros simulation.launch.py num_drones:=3"
+echo "  # Run simulation tests (starts Gazebo + SITL + ROS2):"
+echo "  python scripts/run_tests.py --sim -n 3"
 echo ""
-echo "  # Monitor (Terminal 3):"
-echo "  ros2 topic echo /swarm/status"
-echo ""
-echo "  # Fly formation (Terminal 4):"
-echo "  ros2 service call /swarm/connect std_srvs/srv/Trigger"
-echo "  ros2 service call /swarm/takeoff_all std_srvs/srv/Trigger"
-echo "  ros2 service call /swarm/set_formation swarm_ros/srv/SetFormation '{formation_type: 1}'"
-echo ""
-echo "  # Perception pipeline (optional):"
-echo "  ros2 launch swarm_ros simulation.launch.py num_drones:=3 enable_cameras:=true"
-echo "  ros2 launch swarm_ros perception.launch.py num_drones:=3"
-echo "  ros2 topic echo /drone_0/detections"
+echo "  # Generate world file for N drones:"
+echo "  python scripts/generate_world.py -n 6 --world complex"
 echo ""

@@ -34,10 +34,29 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
-# Find the swarm project root (relative to this launch file's installed location)
-# The swarm package lives at ~/Desktop/python projects/claude/swarm/swarm
-# We need to add the parent directory to PYTHONPATH
-SWARM_PROJECT_ROOT = str(Path.home() / "Desktop" / "python projects" / "claude" / "swarm")
+# Find the swarm project root
+# Check environment variable first (set by Docker), then fallback to common paths
+def find_swarm_root():
+    """Find swarm project root from env var or common paths."""
+    # Environment variable (set in Docker or by setup script)
+    env_root = os.environ.get("SWARM_PROJECT_ROOT")
+    if env_root and Path(env_root).exists():
+        return env_root
+
+    # Common paths
+    candidates = [
+        Path("/app"),  # Docker
+        Path.home() / "swarm",  # Standard install
+        Path.home() / "Desktop" / "python projects" / "claude" / "swarm",  # Dev machine
+    ]
+    for path in candidates:
+        if (path / "swarm" / "coordination").exists():
+            return str(path)
+
+    # Fallback to /app (Docker default)
+    return "/app"
+
+SWARM_PROJECT_ROOT = find_swarm_root()
 
 
 def generate_launch_description():

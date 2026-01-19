@@ -56,6 +56,9 @@ Minimal build excludes: PyTorch, YOLO, OpenCV, GStreamer, cv-bridge, ros-gz-imag
 **Run N-drone simulation:**
 ```bash
 ./scripts/run.sh sim 3
+
+# With extra arguments (speed, timeout, etc.)
+./scripts/run.sh sim-gpu 6 --speed 2.0 --timeout-multiplier 2.0
 ```
 
 **Run tests:**
@@ -78,7 +81,7 @@ Mounts local source code into the container for live editing:
 ./scripts/run.sh dev
 
 # Inside container:
-python scripts/run_phase3_test.py --num-drones 3 --skip-test
+python scripts/run_tests.py --sim -n 3 --skip-sim
 ```
 
 ### CI/CD Mode (`ci`)
@@ -225,7 +228,7 @@ docker compose -f docker/docker-compose.yml run --rm swarm bash
 **Run simulation:**
 ```bash
 docker compose -f docker/docker-compose.yml run --rm swarm \
-  python scripts/run_phase3_test.py --num-drones 3
+  python scripts/run_tests.py --sim -n 3
 ```
 
 **ROS2 commands:**

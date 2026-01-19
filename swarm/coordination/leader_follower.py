@@ -67,8 +67,8 @@ class LeaderFollowerController:
         lf = LeaderFollowerController(num_drones=6)
         lf.set_leader(0)
 
-        # Set up V formation offsets
-        positions = get_formation_positions(FormationType.V_FORMATION, 6)
+        # Set up line formation offsets
+        positions = get_formation_positions(FormationType.LINE, 6)
         lf.set_offsets_from_positions(positions, leader_id=0)
 
         # In flight loop:

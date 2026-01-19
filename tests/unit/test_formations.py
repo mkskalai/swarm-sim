@@ -1,9 +1,9 @@
-"""Unit tests for Phase 3: Swarm Coordination.
+"""Unit tests for swarm coordination.
 
 These tests verify formation calculations, leader-follower logic,
 mission planning, and failure handling without requiring simulation.
 
-Run with: pytest tests/test_phase3.py -v
+Run with: python scripts/run_tests.py --unit
 """
 
 import pytest
@@ -61,19 +61,13 @@ class TestFormations:
         assert min(easts) == pytest.approx(-12.5, rel=0.01)
         assert max(easts) == pytest.approx(12.5, rel=0.01)
 
-    def test_v_formation_5_drones(self):
-        """Test V formation geometry."""
-        positions = get_formation_positions(FormationType.V_FORMATION, 5)
+    def test_line_formation_same_altitude(self):
+        """Test line formation has all drones at same altitude."""
+        positions = get_formation_positions(FormationType.LINE, 3, spacing=5.0, altitude=10.0)
 
-        assert len(positions) == 5
-        # Leader (drone 0) should be at apex (most forward)
-        leader_north = positions[0][0]
-        for i in range(1, 5):
-            assert positions[i][0] < leader_north
-
-        # Left/right should alternate
-        assert positions[1][1] > 0  # First follower to right
-        assert positions[2][1] < 0  # Second follower to left
+        # All drones should be at same altitude (no separation in line)
+        altitudes = [-pos[2] for pos in positions]
+        assert all(alt == pytest.approx(10.0, abs=0.01) for alt in altitudes)
 
     def test_grid_formation_6_drones(self):
         """Test grid formation creates 2x3 or 3x2 grid."""
@@ -84,42 +78,19 @@ class TestFormations:
         pos_set = set(positions)
         assert len(pos_set) == 6
 
-    def test_triangle_formation_3_drones(self):
-        """Test triangle formation with 3 drones."""
-        positions = get_formation_positions(FormationType.TRIANGLE, 3)
-
-        assert len(positions) == 3
-        # Should form equilateral triangle
-        # First drone at apex (row 0), two at back (row 1)
-
-    def test_circle_formation_4_drones(self):
-        """Test circle formation places drones evenly."""
-        positions = get_formation_positions(FormationType.CIRCLE, 4)
-
-        assert len(positions) == 4
-        # All should be equidistant from center
-        distances = [math.sqrt(p[0]**2 + p[1]**2) for p in positions]
-        for d in distances:
-            assert d == pytest.approx(distances[0], rel=0.01)
-
-    def test_diamond_formation_4_drones(self):
-        """Test diamond formation with 4 drones."""
-        positions = get_formation_positions(FormationType.DIAMOND, 4)
-
-        assert len(positions) == 4
-
-    def test_formation_altitude_separation(self):
-        """Test that drones have altitude separation."""
+    def test_grid_formation_altitude_separation(self):
+        """Test that grid formation has altitude separation."""
         config = FormationConfig(altitude=10.0, altitude_separation=2.0)
         calc = FormationCalculator(config)
-        positions = calc.calculate(FormationType.LINE, 3)
+        positions = calc.calculate(FormationType.GRID, 3)
 
         # Each drone should have different altitude
-        altitudes = [-pos[2] for pos in positions]  # Convert down to altitude
-        assert altitudes[0] != altitudes[1]
-        assert altitudes[1] != altitudes[2]
+        altitudes = [-pos[2] for pos in positions]
+        # All altitudes should be unique
+        assert len(set(altitudes)) == 3
         # Separation should be 2.0m
-        assert altitudes[1] - altitudes[0] == pytest.approx(2.0, abs=0.01)
+        altitudes_sorted = sorted(altitudes)
+        assert altitudes_sorted[1] - altitudes_sorted[0] == pytest.approx(2.0, abs=0.01)
 
     def test_formation_rotation(self):
         """Test formation heading rotation."""

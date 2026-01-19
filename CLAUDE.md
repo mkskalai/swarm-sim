@@ -41,12 +41,48 @@ Drone swarm simulation using ArduPilot SITL, Gazebo Harmonic, ROS2 Jazzy. Target
 
 ---
 
+## Directory Structure
+
+```
+swarm/
+├── coordination/           # SwarmController, formations, search patterns
+├── navigation/             # VIO, EKF, GPS jammer
+├── perception/             # YOLO detector, tracker
+├── missions/               # Autonomous missions
+├── simulation/             # Infrastructure: SimManager, WorldGenerator, SITLLauncher
+└── core/
+    └── config.py           # SwarmConfig
+
+scripts/
+├── run_tests.py            # Unified test entry point
+├── generate_world.py       # World generation CLI
+└── launch_sitl.py          # SITL launcher CLI
+
+tests/
+├── conftest.py             # Shared fixtures, markers
+├── unit/                   # Fast tests, no simulation (runs in GHA)
+│   ├── test_config.py
+│   ├── test_formations.py
+│   ├── test_navigation.py
+│   └── ...
+└── simulation/             # Full stack: ROS2 + Gazebo + SITL
+    └── test_swarm.py
+
+worlds/
+├── templates/              # Jinja2 templates
+│   ├── basic.sdf.jinja     # Minimal world (ground plane, sun)
+│   └── complex.sdf.jinja   # Full perception test (people, trucks, buildings)
+└── multi_drone.sdf.jinja   # Legacy template (still works)
+```
+
+---
+
 ## Development Phases
 
 | Phase | Status | Key Files |
 |-------|--------|-----------|
-| 1. Single Drone | ✅ | `swarm/core/drone.py` |
-| 2. Multi-Drone | ✅ | `swarm/core/fleet.py`, `scripts/generate_world.py` |
+| 1. Single Drone | ✅ | `swarm/coordination/swarm_controller.py` |
+| 2. Multi-Drone | ✅ | `swarm/simulation/world_generator.py`, `scripts/generate_world.py` |
 | 3. Coordination | ✅ | `swarm/coordination/swarm_controller.py`, `formations.py` |
 | 4. ROS2 | ✅ | `swarm_ros/swarm_ros/swarm_bridge.py` |
 | 5. Perception | ✅ | `swarm/perception/detector.py`, `tracker.py` |
@@ -74,23 +110,9 @@ Drone swarm simulation using ArduPilot SITL, Gazebo Harmonic, ROS2 Jazzy. Target
 - `swarm/missions/autonomous_mission.py` - AutonomousMissionController
 - `swarm/missions/terrain_config.py` - TerrainConfig, terrain generators
 
-**Test scenarios:**
-1. Swarm navigates terrain → 30-50% get jammed → jammed drones switch to VIO + P2P relative positioning
-2. Pursuit through urban canyon with intermittent GPS denial
-3. Search pattern maintains coverage when subset loses GPS
-
-**Run tests:** `python scripts/test_phase7.py --scenario standalone`
-
 ### Phase 8 Details: Docker Containerization
 
 **Status: COMPLETE**
-
-**Components Implemented:**
-- **Multi-stage Dockerfile:** Base → ArduPilot builder → Gazebo plugin builder → Final image
-- **docker-compose.yml:** Profiles for dev, ci, and headless modes
-- **GPU support:** NVIDIA with automatic CPU fallback
-- **GUI support:** X11 forwarding for Gazebo visualization
-- **Helper scripts:** `build.sh`, `run.sh` for easy usage
 
 **Key files:**
 - `docker/Dockerfile` - Multi-stage build (~15-20GB final image)
@@ -98,51 +120,10 @@ Drone swarm simulation using ArduPilot SITL, Gazebo Harmonic, ROS2 Jazzy. Target
 - `docker/entrypoint.sh` - Environment setup and GPU detection
 - `docker/scripts/build.sh` - Build helper
 - `docker/scripts/run.sh` - Run helper with X11 setup
-- `docker/README.md` - Docker usage documentation
-
-**Usage modes:**
-1. **Development:** Mount source code for live editing
-2. **CI/CD:** Self-contained testing with pytest
-3. **Headless:** Server-side simulation without GUI
-
-**Run container:**
-```bash
-cd docker
-./scripts/build.sh          # Build image (30-45 min first time)
-./scripts/run.sh dev        # Development mode
-./scripts/run.sh sim 3      # Run 3-drone simulation
-./scripts/run.sh ci         # Run tests
-```
 
 ### Phase 9 Details: Tactical Swarm Overwatch
 
 **Status: PLANNED** - See [docs/phase9-tactical-overwatch.md](docs/phase9-tactical-overwatch.md) for full plan.
-
-**Mission:** Protective drone coverage over human group navigating labyrinth with threat interception.
-
-**Components Planned:**
-- **Group tracking:** GPS beacons from group members + visual fallback + observer input
-- **Coverage mesh:** Hexagonal formation dynamically following group
-- **Relative positioning:** Formation maintenance during GPS denial using anchor drones
-- **Threat detection:** YOLO-based enemy drone detection + classification (FRIENDLY/HOSTILE)
-- **Intercept planning:** Collision course computation for kamikaze defense
-- **Defender selection:** Weighted selection (prefer GPS-denied, low battery, edge drones)
-- **Observer interface:** CLI + ROS2 commands for human-swarm control
-
-**Key decisions:**
-- Always intercept threats (no minimum drone threshold)
-- Sacrifice GPS-denied and low-battery drones first
-- Human observers direct high-level behavior, swarm handles tactics
-
-**Reuses from existing phases:**
-- VIO/EKF (Phase 6) for GPS-denied operation
-- GPS Jammer (Phase 7) for jamming zone simulation
-- YOLO detector (Phase 5) with new drone class
-- NeighborTracker (Phase 4) for swarm awareness
-- PursuitController concepts (Phase 7) for intercept
-
-**Implementation order:**
-1. GroupTracker → 2. CoverageMesh → 3. RelativePositioning → 4. DroneDataset → 5. ThreatDetector → 6. InterceptPlanner → 7. DefenderSelector → 8. ObserverInterface → 9. MissionController → 10. TestScenarios
 
 ---
 
@@ -188,32 +169,38 @@ ln -sf ~/swarm/scripts/setup_env.sh ~/setup_swarm_env.sh
 # Activate environment
 source ~/setup_swarm_env.sh
 
-# Run 3-drone test
-python scripts/run_phase3_test.py --num-drones 3
+# Run unit tests (fast, no simulation) - also runs in GitHub Actions
+python scripts/run_tests.py --unit
 
-# Start sim only (for manual control)
-python scripts/run_phase3_test.py --num-drones 3 --skip-test
+# Run simulation tests (ROS2 + Gazebo + SITL)
+python scripts/run_tests.py --sim -n 3
+
+# Run simulation with 6 drones, complex world
+python scripts/run_tests.py --sim -n 6 --world complex
+
+# Run simulation WITHOUT ROS2 (edge case for algorithm testing)
+python scripts/run_tests.py --sim -n 3 --no-ros
+
+# Skip simulation startup (assume already running)
+python scripts/run_tests.py --sim -n 3 --skip-sim
+
+# Run everything (unit + simulation)
+python scripts/run_tests.py --all -n 6
+
+# Increase timeouts for slow hardware (CPU-only or slow GPU)
+python scripts/run_tests.py --sim -n 3 --timeout-multiplier 3.0
+
+# Generate world file
+python scripts/generate_world.py -n 6 --layout grid --world complex
+
+# Launch SITL instances only
+python scripts/launch_sitl.py -n 3
 
 # ROS2 bridge
 ros2 launch swarm_ros simulation.launch.py num_drones:=3
 
 # Rebuild ROS2 after changes
 cd ~/ros2_ws && colcon build --packages-select swarm_ros && source install/setup.bash
-
-# Phase 6: GPS-denied navigation test
-python scripts/test_phase6.py --num-drones 3 --gps-denial-test
-
-# Phase 7: Autonomous missions test (standalone - no sim required)
-python scripts/test_phase7.py --scenario standalone
-
-# Phase 7: Generate terrain world
-python scripts/generate_terrain_world.py --terrain urban --num-drones 4
-
-# Run unit tests
-pytest tests/test_navigation.py -v
-pytest tests/test_search_patterns.py -v
-pytest tests/test_pursuit.py -v
-pytest tests/test_gps_jammer.py -v
 
 # Docker: Build and run
 cd docker && ./scripts/build.sh
@@ -229,7 +216,11 @@ cd docker && ./scripts/build.sh
 | Class | Location | Purpose |
 |-------|----------|---------|
 | `SwarmController` | `swarm/coordination/swarm_controller.py` | Main orchestrator (pymavlink) |
-| `FormationType` | `swarm/coordination/formations.py` | LINE, V, TRIANGLE, GRID, CIRCLE, DIAMOND |
+| `SwarmConfig` | `swarm/core/config.py` | Swarm configuration |
+| `SimManager` | `swarm/simulation/sim_manager.py` | Gazebo + SITL + ROS2 orchestration |
+| `WorldGenerator` | `swarm/simulation/world_generator.py` | Dynamic world/model generation |
+| `SITLLauncher` | `swarm/simulation/sitl_launcher.py` | SITL process management |
+| `FormationType` | `swarm/coordination/formations.py` | LINE, GRID, STAR |
 | `YOLODetector` | `swarm/perception/detector.py` | Object detection |
 | `SimpleTracker` | `swarm/perception/tracker.py` | IoU-based tracking |
 | `SwarmBridge` | `swarm_ros/swarm_ros/swarm_bridge.py` | ROS2 interface for simulation |
@@ -243,14 +234,34 @@ cd docker && ./scripts/build.sh
 | `GPSJammer` | `swarm/navigation/gps_jammer.py` | Zone-based GPS denial simulation |
 | `SemanticLandmarkDatabase` | `swarm/navigation/semantic_landmarks.py` | YOLO detection landmarks for VIO |
 | `AutonomousMissionController` | `swarm/missions/autonomous_mission.py` | Mission orchestrator (search→pursue→RTL) |
-| `TacticalMissionController` | `swarm/tactical/mission_controller.py` | Phase 9: Tactical overwatch orchestrator (planned) |
-| `GroupTracker` | `swarm/tactical/group_tracker.py` | Phase 9: Track protected human group (planned) |
-| `CoverageMeshPlanner` | `swarm/tactical/coverage_mesh.py` | Phase 9: Dynamic formation over group (planned) |
-| `ThreatDetector` | `swarm/tactical/threat_detector.py` | Phase 9: Enemy drone detection (planned) |
-| `InterceptPlanner` | `swarm/tactical/intercept_planner.py` | Phase 9: Collision course computation (planned) |
-| `DefenderSelector` | `swarm/tactical/defender_selector.py` | Phase 9: Choose drone for intercept (planned) |
-| `ObserverInterface` | `swarm/tactical/observer_interface.py` | Phase 9: Human-swarm commands (planned) |
-| `RelativePositioning` | `swarm/tactical/relative_positioning.py` | Phase 9: GPS-denied formation keeping (planned) |
+
+---
+
+## Test Infrastructure
+
+### Test Categories
+
+| Category | Description | Where it runs | Command |
+|----------|-------------|---------------|---------|
+| **Unit** | Pure Python logic, no external deps | GitHub Actions + local | `python scripts/run_tests.py --unit` |
+| **Simulation** | Full stack: ROS2 + Gazebo + SITL | Local / Docker only | `python scripts/run_tests.py --sim` |
+
+### Test Markers
+
+- `@pytest.mark.unit` - Pure Python, no simulation
+- `@pytest.mark.sim` - Full stack simulation
+- `@pytest.mark.gpu` - Tests requiring GPU (YOLO)
+- `@pytest.mark.slow` - Long-running tests
+
+### World Types
+
+- `basic` - Minimal world (ground plane, sun) for algorithm testing
+- `complex` - Full perception test (people, trucks, buildings) - **DEFAULT**
+
+### Spawn Layouts
+
+- `grid` - sqrt(N) x sqrt(N) grid - **DEFAULT**
+- `line` - Drones in a row along X axis
 
 ---
 
@@ -276,3 +287,8 @@ cd docker && ./scripts/build.sh
 | 2026-01-16 | Single all-in-one Docker image | Simpler deployment; multi-container adds complexity for little benefit |
 | 2026-01-16 | Multi-stage Docker build | Reduces final image size; separates build deps from runtime |
 | 2026-01-16 | Host network mode | Simplifies MAVLink port exposure (many dynamic ports) |
+| 2026-01-18 | Test infrastructure refactor | Consolidated phase tests, deleted deprecated MAVSDK code, unified test runner |
+| 2026-01-18 | Grid spawn layout default | Better utilization of space for larger swarms |
+| 2026-01-18 | Jinja world templates | Dynamic generation for any drone count, basic/complex world types |
+| 2026-01-18 | Simplified formations | Reduced to LINE, GRID, STAR (in YZ plane). V/TRIANGLE/CIRCLE/DIAMOND removed for simplicity. |
+| 2026-01-18 | Configurable test timeouts | `--timeout-multiplier` flag for slow hardware (CPU-only systems need 2-3x) |

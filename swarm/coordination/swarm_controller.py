@@ -41,6 +41,9 @@ class SwarmConfig:
         ekf_timeout: Timeout for EKF convergence
         enable_vio: Enable Visual-Inertial Odometry for GPS-denied navigation
         vio_mode: VIO navigation mode ("gps", "vio", "hybrid")
+        spawn_layout: Spawn layout used in world gen ("grid" or "line")
+        spawn_spacing: Spacing between drones at spawn (meters)
+        collision_avoidance_separation: Vertical separation for collision avoidance (meters)
     """
     num_drones: int = 3
     base_port: int = 14540
@@ -50,6 +53,9 @@ class SwarmConfig:
     ekf_timeout: float = 60.0
     enable_vio: bool = False
     vio_mode: str = "hybrid"  # "gps", "vio", "hybrid"
+    spawn_layout: str = "grid"
+    spawn_spacing: float = 5.0
+    collision_avoidance_separation: float = 3.0  # meters between drones during transitions
 
 
 class SwarmController:
@@ -66,7 +72,7 @@ class SwarmController:
         controller.arm_all()
         controller.takeoff_all(altitude=10.0)
 
-        controller.fly_formation(FormationType.V_FORMATION, duration=30.0)
+        controller.fly_formation(FormationType.LINE, duration=30.0)
 
         controller.land_all()
         controller.disconnect_all()
@@ -98,6 +104,10 @@ class SwarmController:
         self._is_connected = False
         self._is_armed = False
         self._current_positions: dict[int, PositionNED] = {}
+
+        # Home position offsets (NED) for each drone based on spawn positions
+        # Used to transform world formations to drone-local coordinates
+        self._home_offsets: dict[int, PositionNED] = self._calculate_home_offsets()
 
         # VIO estimators (optional, for GPS-denied navigation)
         self._vio_estimators: dict[int, "PositionSource"] = {}
@@ -533,8 +543,22 @@ class SwarmController:
             altitude
         )
 
-    def land_all(self) -> None:
-        """Command landing for all drones."""
+    def land_all(
+        self,
+        timeout: Optional[float] = None,
+        altitude_threshold: float = 0.5,
+        verify: bool = True,
+    ) -> bool:
+        """Command landing for all drones.
+
+        Args:
+            timeout: Max time to wait for landing (default 60s, scaled by timeout_multiplier)
+            altitude_threshold: Altitude threshold for "landed" (meters)
+            verify: If True, verify all drones reached ground
+
+        Returns:
+            True if all drones landed (or verify=False)
+        """
         logger.info("Landing all drones...")
         print("\nLanding all drones...")
 
@@ -542,9 +566,25 @@ class SwarmController:
             self._land(conn, drone_id)
             print(f"  Drone {drone_id}: Land commanded")
 
-        print("Waiting for landing...")
-        time.sleep(15)
-        print("Landing complete.\n")
+        if not verify:
+            print("Waiting for landing (no verification)...")
+            time.sleep(15)
+            print("Landing complete.\n")
+            return True
+
+        # Verify landing with timeout
+        if timeout is None:
+            timeout = 60.0
+
+        print(f"Verifying landing (timeout={timeout}s, threshold={altitude_threshold}m)...")
+        landed = self._verify_landed(timeout, altitude_threshold)
+
+        if landed:
+            print("Landing complete - all drones verified on ground.\n")
+        else:
+            print("WARNING: Not all drones verified landed.\n")
+
+        return landed
 
     def _land(self, conn: mavutil.mavlink_connection, drone_id: int) -> None:
         """Command land on single drone."""
@@ -560,6 +600,158 @@ class SwarmController:
             0,  # latitude
             0,  # longitude
             0   # altitude
+        )
+
+    def _verify_landed(
+        self,
+        timeout: float = 60.0,
+        altitude_threshold: float = 0.5,
+    ) -> bool:
+        """Verify all drones have landed.
+
+        Polls position until all drones report altitude below threshold.
+
+        Args:
+            timeout: Max time to wait (seconds)
+            altitude_threshold: Max altitude to consider "landed" (meters)
+
+        Returns:
+            True if all drones below threshold within timeout
+        """
+        start = time.time()
+        landed = {drone_id: False for drone_id in self._connections}
+
+        while time.time() - start < timeout:
+            all_landed = True
+
+            for drone_id, conn in self._connections.items():
+                if landed[drone_id]:
+                    continue  # Already confirmed landed
+
+                pos = self._get_position(conn, timeout=0.5, drone_id=drone_id)
+                if pos:
+                    altitude = -pos[2]  # Convert Down to altitude
+                    if altitude < altitude_threshold:
+                        landed[drone_id] = True
+                        logger.debug(f"Drone {drone_id} landed (alt={altitude:.2f}m)")
+                    else:
+                        all_landed = False
+                else:
+                    all_landed = False
+
+            if all_landed:
+                return True
+
+            time.sleep(0.5)
+
+        # Log which drones didn't land
+        for drone_id, is_landed in landed.items():
+            if not is_landed:
+                logger.warning(f"Drone {drone_id} did not verify landed within {timeout}s")
+
+        return False
+
+    def spread_and_land(
+        self,
+        spacing: float = 8.0,
+        spread_timeout: float = 30.0,
+        landing_timeout: float = 60.0,
+        altitude_threshold: float = 0.5,
+    ) -> bool:
+        """Spread drones to spawn formation then land to avoid collision.
+
+        Moves all drones back to their spawn positions (same layout as initial
+        spawn: GRID or LINE) at current average altitude, then commands landing
+        with verification. This prevents drones from colliding during descent.
+
+        Args:
+            spacing: Horizontal spacing between drones (meters)
+            spread_timeout: Time to reach spread positions (seconds)
+            landing_timeout: Time to land and verify (seconds)
+            altitude_threshold: Altitude threshold for "landed" (meters)
+
+        Returns:
+            True if all drones landed successfully
+        """
+        layout = self.config.spawn_layout
+        logger.info(f"Spreading drones to {layout} formation before landing...")
+        print(f"\nSpreading drones to {layout.upper()} formation before landing...")
+
+        # Get current positions and calculate average altitude
+        positions = self._get_all_positions(timeout=1.0)
+        if not positions:
+            logger.warning("Could not get positions, falling back to direct landing")
+            return self.land_all(timeout=landing_timeout, verify=True)
+
+        avg_altitude = sum(-pos[2] for pos in positions.values()) / len(positions)
+        logger.debug(f"Average altitude: {avg_altitude:.1f}m")
+
+        # Calculate spread positions based on spawn layout (world coords)
+        # Sort drones by current position to prevent path crossing during spread
+        num_drones = len(positions)
+        spread_targets = {}
+
+        # Convert local positions to world positions for sorting
+        world_positions = {}
+        for drone_id, local_pos in positions.items():
+            home = self._home_offsets.get(drone_id, (0, 0, 0))
+            world_pos = (
+                local_pos[0] + home[0],
+                local_pos[1] + home[1],
+                local_pos[2] + home[2],
+            )
+            world_positions[drone_id] = world_pos
+
+        if layout == "line":
+            # LINE: spread along East axis
+            # Sort by current East position to prevent crossing
+            sorted_drones = sorted(positions.keys(), key=lambda d: world_positions[d][1])
+            center_offset = (num_drones - 1) / 2
+            for idx, drone_id in enumerate(sorted_drones):
+                east = (idx - center_offset) * spacing
+                world_pos = (0.0, east, -avg_altitude)
+                local_pos = self._world_to_local(world_pos, drone_id)
+                spread_targets[drone_id] = local_pos
+                print(f"  Drone {drone_id}: spread to world N=0, E={east:.1f}m")
+        else:
+            # GRID: spread to grid pattern (matching spawn)
+            # Sort by row-major (North descending, East ascending) to prevent crossing
+            import math
+            sorted_drones = sorted(
+                positions.keys(),
+                key=lambda d: (-world_positions[d][0], world_positions[d][1])
+            )
+            cols = math.ceil(math.sqrt(num_drones))
+            grid_east_offset = (cols - 1) * spacing / 2
+            rows = math.ceil(num_drones / cols)
+            grid_north_offset = (rows - 1) * spacing / 2
+
+            for idx, drone_id in enumerate(sorted_drones):
+                row, col = divmod(idx, cols)
+                north = grid_north_offset - row * spacing
+                east = col * spacing - grid_east_offset
+                world_pos = (north, east, -avg_altitude)
+                local_pos = self._world_to_local(world_pos, drone_id)
+                spread_targets[drone_id] = local_pos
+                print(f"  Drone {drone_id}: spread to world N={north:.1f}, E={east:.1f}m")
+
+        # Move to spread positions with collision avoidance
+        # Uses 3-phase altitude separation to prevent path crossing during spread
+        spread_ok = self._fly_with_collision_avoidance(
+            spread_targets,
+            tolerance=2.0,
+            timeout=spread_timeout,
+        )
+
+        if not spread_ok:
+            logger.warning("Not all drones reached spread positions, landing anyway")
+            print("  WARNING: Some drones did not reach spread positions")
+
+        # Now land
+        return self.land_all(
+            timeout=landing_timeout,
+            altitude_threshold=altitude_threshold,
+            verify=True,
         )
 
     def return_to_launch_all(self) -> None:
@@ -736,6 +928,134 @@ class SwarmController:
 
         return False
 
+    def goto_all(
+        self,
+        north: float,
+        east: float,
+        altitude: float,
+        wait: bool = True,
+        timeout: float = 30.0,
+        tolerance: float = 2.0,
+    ) -> bool:
+        """Command all drones to fly to a position.
+
+        All drones fly to the same world position (useful for rallying).
+        Coordinates are transformed to each drone's local frame.
+
+        Args:
+            north: North position in meters (world frame)
+            east: East position in meters (world frame)
+            altitude: Altitude in meters (positive = up)
+            wait: If True, wait for drones to arrive
+            timeout: Maximum wait time for arrival
+            tolerance: Distance threshold for "arrived" (meters)
+
+        Returns:
+            True if all drones reached position (or wait=False)
+        """
+        # Convert altitude to down coordinate (NED)
+        down = -altitude
+        world_target = (north, east, down)
+
+        logger.info(f"Moving all drones to N={north:.1f}, E={east:.1f}, Alt={altitude:.1f}m")
+        print(f"Moving all drones to N={north:.1f}, E={east:.1f}, Alt={altitude:.1f}m...")
+
+        # Transform world position to each drone's local frame
+        targets = {
+            drone_id: self._world_to_local(world_target, drone_id)
+            for drone_id in self._connections
+        }
+
+        if wait:
+            return self._wait_for_positions(targets, tolerance, timeout)
+        else:
+            # Just send the commands once
+            for drone_id, conn in self._connections.items():
+                self._send_position_ned(conn, targets[drone_id])
+            return True
+
+    def goto_formation(
+        self,
+        center_north: float,
+        center_east: float,
+        altitude: float,
+        formation_type: Optional[FormationType] = None,
+        config: Optional[FormationConfig] = None,
+        wait: bool = True,
+        timeout: float = 30.0,
+        tolerance: float = 2.0,
+    ) -> bool:
+        """Move swarm to a new center position while maintaining formation.
+
+        Unlike goto_all() which moves all drones to the same point, this method
+        moves the formation CENTER to the specified position while maintaining
+        the relative formation offsets between drones.
+
+        Args:
+            center_north: North position for formation center (world frame)
+            center_east: East position for formation center (world frame)
+            altitude: Altitude in meters (positive = up)
+            formation_type: Formation to maintain (defaults to LINE if not specified)
+            config: Formation configuration (spacing, etc.)
+            wait: If True, wait for drones to arrive
+            timeout: Maximum wait time for arrival
+            tolerance: Distance threshold for "arrived" (meters)
+
+        Returns:
+            True if all drones reached positions (or wait=False)
+        """
+        active_drones = self.failure_handler.get_active_drones()
+        num_active = len(active_drones)
+
+        if num_active == 0:
+            logger.error("No active drones for goto_formation")
+            return False
+
+        # Default to LINE formation if not specified
+        formation = formation_type or FormationType.LINE
+        cfg = config or FormationConfig(altitude=altitude)
+
+        # Calculate formation positions centered at origin
+        formation_positions = self.formation.calculate(formation, num_active, cfg)
+
+        # Offset all positions to the new center
+        down = -altitude
+        world_positions = [
+            (center_north + pos[0], center_east + pos[1], down)
+            for pos in formation_positions
+        ]
+
+        logger.info(
+            f"Moving {formation.value} formation to N={center_north:.1f}, "
+            f"E={center_east:.1f}, Alt={altitude:.1f}m"
+        )
+        print(
+            f"Moving {formation.value.upper()} formation to "
+            f"N={center_north:.1f}, E={center_east:.1f}, Alt={altitude:.1f}m..."
+        )
+
+        # Sort drones for optimal slot assignment
+        current_positions = self._get_all_positions(timeout=1.0)
+        sorted_drones = self._sort_drones_for_formation(
+            active_drones, current_positions, formation
+        )
+
+        # Transform world positions to each drone's local frame
+        targets = {}
+        for idx, drone_id in enumerate(sorted_drones):
+            world_pos = world_positions[idx]
+            local_pos = self._world_to_local(world_pos, drone_id)
+            targets[drone_id] = local_pos
+
+        if wait:
+            return self._fly_with_collision_avoidance(targets, tolerance, timeout)
+        else:
+            # Just send the commands once
+            for drone_id, conn in self._connections.items():
+                if drone_id in targets:
+                    self._send_position_ned(conn, targets[drone_id])
+            return True
+
     # ----- Formation Flying -----
 
     def fly_formation(
@@ -774,25 +1094,32 @@ class SwarmController:
             logger.error("No active drones for formation")
             return False
 
-        # Calculate positions for active drones
-        positions = self.formation.calculate(formation_type, num_active, config)
+        # Calculate formation positions in world frame (relative to drone 0's home)
+        world_positions = self.formation.calculate(formation_type, num_active, config)
 
         logger.info(f"Flying {formation_type.value} formation with {num_active} drones")
         print(f"\nFlying {formation_type.value.upper()} formation...")
 
-        for idx, drone_id in enumerate(active_drones):
-            n, e, d = positions[idx]
-            print(f"  Drone {drone_id}: N={n:.1f}, E={e:.1f}, Alt={-d:.1f}m")
+        # Sort drones by current world position to assign formation slots correctly
+        # This prevents path crossing when drones have different spawn positions
+        current_positions = self._get_all_positions(timeout=1.0)
+        sorted_drones = self._sort_drones_for_formation(
+            active_drones, current_positions, formation_type
+        )
 
-        # Build target positions dict
-        targets = {
-            active_drones[idx]: positions[idx]
-            for idx in range(len(active_drones))
-        }
+        # Transform world positions to each drone's local frame
+        # Formation slot i goes to sorted_drones[i], not active_drones[i]
+        targets = {}
+        for idx, drone_id in enumerate(sorted_drones):
+            world_pos = world_positions[idx]
+            local_pos = self._world_to_local(world_pos, drone_id)
+            targets[drone_id] = local_pos
+            print(f"  Drone {drone_id}: World N={world_pos[0]:.1f}, E={world_pos[1]:.1f} "
+                  f"-> Local N={local_pos[0]:.1f}, E={local_pos[1]:.1f}, Alt={-local_pos[2]:.1f}m")
 
-        # Phase 1: Wait for drones to reach formation positions
-        print(f"  Waiting for drones to reach positions (tolerance={arrival_tolerance}m)...")
-        if not self._wait_for_positions(targets, arrival_tolerance, arrival_timeout):
+        # Phase 1: Move drones to formation positions with collision avoidance
+        # Uses 3-phase altitude separation to prevent path crossing
+        if not self._fly_with_collision_avoidance(targets, arrival_tolerance, arrival_timeout):
             logger.warning("Some drones did not reach formation positions in time")
             print("  WARNING: Some drones did not reach positions in time")
             # Continue anyway - partial formation is better than nothing
@@ -814,25 +1141,25 @@ class SwarmController:
                 print(f"  WARNING: {num_active - len(new_active)} drone(s) failed")
 
                 # Recalculate formation for remaining drones
-                positions = self.formation.calculate(
+                world_positions = self.formation.calculate(
                     formation_type, len(new_active), config
                 )
                 active_drones = new_active
                 num_active = len(new_active)
 
-                # Update targets
-                targets = {
-                    active_drones[idx]: positions[idx]
-                    for idx in range(len(active_drones))
-                }
+                # Update targets with local coordinate transformation
+                targets = {}
+                for idx, drone_id in enumerate(active_drones):
+                    world_pos = world_positions[idx]
+                    targets[drone_id] = self._world_to_local(world_pos, drone_id)
 
             # Send position commands to all active drones
-            for idx, drone_id in enumerate(active_drones):
-                if drone_id in self._connections:
-                    self._send_position_ned(self._connections[drone_id], positions[idx])
+            for drone_id in active_drones:
+                if drone_id in self._connections and drone_id in targets:
+                    self._send_position_ned(self._connections[drone_id], targets[drone_id])
 
                     # Update failure handler with heartbeat
-                    self.failure_handler.update_heartbeat(drone_id, positions[idx])
+                    self.failure_handler.update_heartbeat(drone_id, targets[drone_id])
 
             time.sleep(interval)
 
@@ -871,12 +1198,29 @@ class SwarmController:
         if num_active == 0:
             return False
 
-        start_positions = self.formation.calculate(from_type, num_active, config)
-        end_positions = self.formation.calculate(to_type, num_active, config)
+        # Sort drones by current position for optimal slot assignment
+        current_positions = self._get_all_positions(timeout=1.0)
+        sorted_drones = self._sort_drones_for_formation(
+            active_drones, current_positions, to_type
+        )
+
+        # Calculate world-frame positions for start and end formations
+        start_world = self.formation.calculate(from_type, num_active, config)
+        end_world = self.formation.calculate(to_type, num_active, config)
+
+        # Transform to local coordinates for each drone (using sorted order)
+        start_local = [
+            self._world_to_local(start_world[idx], sorted_drones[idx])
+            for idx in range(num_active)
+        ]
+        end_local = [
+            self._world_to_local(end_world[idx], sorted_drones[idx])
+            for idx in range(num_active)
+        ]
 
         transition = FormationTransition(
-            start_positions=start_positions,
-            end_positions=end_positions,
+            start_positions=start_local,
+            end_positions=end_local,
             duration=transition_duration,
         )
 
@@ -886,11 +1230,11 @@ class SwarmController:
         interval = 1.0 / self.config.position_update_rate
         start = time.time()
 
-        # Transition phase
+        # Transition phase (use sorted_drones to match slot assignment)
         while not transition.is_complete(time.time() - start):
             positions = transition.get_positions_at_time(time.time() - start)
 
-            for idx, drone_id in enumerate(active_drones):
+            for idx, drone_id in enumerate(sorted_drones):
                 if drone_id in self._connections:
                     self._send_position_ned(self._connections[drone_id], positions[idx])
                     # Keep heartbeat alive during transition
@@ -908,7 +1252,7 @@ class SwarmController:
     def start_leader_follower(
         self,
         leader_id: int = 0,
-        formation_type: FormationType = FormationType.V_FORMATION,
+        formation_type: FormationType = FormationType.LINE,
         config: Optional[FormationConfig] = None,
     ) -> None:
         """Start leader-follower mode.
@@ -1067,6 +1411,258 @@ class SwarmController:
         print(f"Mission {mission.name} complete.\n")
         return True
 
+    # ----- Coordinate Frame Helpers -----
+
+    def _sort_drones_for_formation(
+        self,
+        drone_ids: list[int],
+        current_positions: dict[int, PositionNED],
+        formation_type: "FormationType",
+    ) -> list[int]:
+        """Sort drones by position for optimal formation slot assignment.
+
+        This prevents path crossing when transitioning to a formation.
+        Drones are sorted so that the one closest to formation slot 0 gets
+        slot 0, etc.
+
+        For LINE formation: sort by East position (leftmost gets slot 0)
+        For GRID formation: sort by row-major (North, then East)
+
+        Args:
+            drone_ids: List of active drone IDs
+            current_positions: Dict of drone_id -> local position (NED)
+            formation_type: The formation being flown
+
+        Returns:
+            List of drone IDs sorted for optimal slot assignment
+        """
+        from swarm.coordination import FormationType
+
+        # Convert local positions to world positions for sorting
+        world_positions = {}
+        for drone_id in drone_ids:
+            if drone_id in current_positions:
+                local_pos = current_positions[drone_id]
+                home = self._home_offsets.get(drone_id, (0, 0, 0))
+                world_pos = (
+                    local_pos[0] + home[0],  # World North
+                    local_pos[1] + home[1],  # World East
+                    local_pos[2] + home[2],  # World Down
+                )
+                world_positions[drone_id] = world_pos
+            else:
+                # Use home position if current position unknown
+                world_positions[drone_id] = self._home_offsets.get(drone_id, (0, 0, 0))
+
+        if formation_type == FormationType.LINE:
+            # LINE: sort by East (smallest East gets westernmost slot 0)
+            sorted_drones = sorted(drone_ids, key=lambda d: world_positions[d][1])
+        else:
+            # GRID: sort by row-major (North descending, then East ascending)
+            # This matches how grid positions are generated
+            sorted_drones = sorted(
+                drone_ids,
+                key=lambda d: (-world_positions[d][0], world_positions[d][1])
+            )
+
+        logger.debug(f"Formation slot assignment: {sorted_drones}")
+        return sorted_drones
+
+    def _fly_with_collision_avoidance(
+        self,
+        targets: dict[int, PositionNED],
+        tolerance: float = 2.0,
+        timeout: float = 30.0,
+    ) -> bool:
+        """Move drones to targets using 3-phase altitude separation.
+
+        This method prevents collisions during formation transitions by:
+        1. Phase 1: All drones climb to unique staggered altitudes
+        2. Phase 2: All drones move horizontally at their staggered altitude
+        3. Phase 3: All drones descend to final formation altitude
+
+        The vertical separation ensures drones never occupy the same airspace
+        during horizontal movement, even if paths would otherwise cross.
+
+        Args:
+            targets: Dict mapping drone_id to target (n, e, d) position
+            tolerance: Distance threshold for "arrived" (meters)
+            timeout: Maximum time for each phase (seconds)
+
+        Returns:
+            True if all drones reached their targets
+        """
+        if not targets:
+            return True
+
+        separation = self.config.collision_avoidance_separation
+        drone_ids = list(targets.keys())
+        num_drones = len(drone_ids)
+
+        # Get current positions
+        current_positions = self._get_all_positions(timeout=1.0)
+        if not current_positions:
+            logger.warning("Could not get positions, falling back to direct movement")
+            return self._wait_for_positions(targets, tolerance, timeout)
+
+        # Calculate staggered altitudes for each drone (based on sorted order)
+        # Use drone's index in sorted list to assign altitude tier
+        sorted_by_id = sorted(drone_ids)
+        altitude_tiers = {
+            drone_id: idx * separation
+            for idx, drone_id in enumerate(sorted_by_id)
+        }
+
+        # Find the highest current altitude and highest target altitude
+        current_alts = [-pos[2] for pos in current_positions.values() if pos]
+        target_alts = [-pos[2] for pos in targets.values()]
+        max_current_alt = max(current_alts) if current_alts else 10.0
+        max_target_alt = max(target_alts) if target_alts else 10.0
+        base_transition_alt = max(max_current_alt, max_target_alt) + separation
+
+        print(f"  Collision avoidance: 3-phase transition (separation={separation}m)")
+
+        # === PHASE 1: Climb to staggered altitudes ===
+        print(f"  Phase 1/3: Climbing to staggered altitudes...")
+        climb_targets = {}
+        for drone_id in drone_ids:
+            if drone_id in current_positions:
+                current = current_positions[drone_id]
+                stagger_alt = base_transition_alt + altitude_tiers[drone_id]
+                # Keep current N/E, climb to staggered altitude
+                climb_targets[drone_id] = (current[0], current[1], -stagger_alt)
+
+        if climb_targets:
+            phase1_ok = self._wait_for_positions(climb_targets, tolerance, timeout / 3)
+            if not phase1_ok:
+                logger.warning("Phase 1 (climb) incomplete, continuing anyway")
+
+        # === PHASE 2: Move horizontally to target N/E ===
+        print(f"  Phase 2/3: Moving horizontally to target positions...")
+        horizontal_targets = {}
+        for drone_id in drone_ids:
+            target = targets[drone_id]
+            stagger_alt = base_transition_alt + altitude_tiers[drone_id]
+            # Move to target N/E, keep staggered altitude
+            horizontal_targets[drone_id] = (target[0], target[1], -stagger_alt)
+
+        if horizontal_targets:
+            phase2_ok = self._wait_for_positions(horizontal_targets, tolerance, timeout / 3)
+            if not phase2_ok:
+                logger.warning("Phase 2 (horizontal) incomplete, continuing anyway")
+
+        # === PHASE 3: Descend to final altitude ===
+        print(f"  Phase 3/3: Descending to formation altitude...")
+        phase3_ok = self._wait_for_positions(targets, tolerance, timeout / 3)
+
+        if phase3_ok:
+            logger.info("3-phase collision avoidance transition complete")
+        else:
+            logger.warning("Phase 3 (descend) incomplete")
+
+        return phase3_ok
+
+    def _calculate_home_offsets(self) -> dict[int, PositionNED]:
+        """Calculate home position offsets for each drone based on spawn layout.
+
+        Each drone's LOCAL_POSITION_NED is relative to its own home (spawn position).
+        This method calculates the offset of each drone's home from drone 0's home,
+        allowing us to transform world-frame formation positions to drone-local coords.
+
+        Gazebo X maps to NED East, Gazebo Y maps to NED North.
+
+        Returns:
+            Dict mapping drone_id to (north, east, down) home offset from drone 0
+        """
+        import math
+
+        offsets = {}
+        layout = self.config.spawn_layout
+        spacing = self.config.spawn_spacing
+        num = self.config.num_drones
+
+        if layout == "line":
+            # Line along Gazebo X (East)
+            for i in range(num):
+                # Gazebo (i*spacing, 0, 0) -> NED (N=0, E=i*spacing, D=0)
+                offsets[i] = (0.0, i * spacing, 0.0)
+        else:
+            # Grid layout
+            cols = math.ceil(math.sqrt(num))
+            for i in range(num):
+                row, col = divmod(i, cols)
+                # Gazebo (col*spacing, row*spacing, 0) -> NED (N=row*spacing, E=col*spacing, D=0)
+                offsets[i] = (row * spacing, col * spacing, 0.0)
+
+        return offsets
+
+    def _world_to_local(
+        self,
+        world_pos: PositionNED,
+        drone_id: int,
+    ) -> PositionNED:
+        """Convert world NED position to drone-local NED position.
+
+        Args:
+            world_pos: Position in world NED frame (relative to drone 0's home)
+            drone_id: Target drone ID
+
+        Returns:
+            Position in drone's local NED frame
+        """
+        if drone_id not in self._home_offsets:
+            return world_pos
+
+        home = self._home_offsets[drone_id]
+        return (
+            world_pos[0] - home[0],  # North
+            world_pos[1] - home[1],  # East
+            world_pos[2] - home[2],  # Down
+        )
+
+    def _local_to_world(
+        self,
+        local_pos: PositionNED,
+        drone_id: int,
+    ) -> PositionNED:
+        """Convert drone-local NED position to world NED position.
+
+        Args:
+            local_pos: Position in drone's local NED frame
+            drone_id: Source drone ID
+
+        Returns:
+            Position in world NED frame (relative to drone 0's home)
+        """
+        if drone_id not in self._home_offsets:
+            return local_pos
+
+        home = self._home_offsets[drone_id]
+        return (
+            local_pos[0] + home[0],  # North
+            local_pos[1] + home[1],  # East
+            local_pos[2] + home[2],  # Down
+        )
+
+    def _get_all_positions_world(self, timeout: float = 0.5) -> dict[int, PositionNED]:
+        """Get current positions from all drones in world frame.
+
+        Unlike _get_all_positions() which returns local positions,
+        this method converts them to world coordinates for comparison
+        with formation calculations.
+
+        Args:
+            timeout: How long to wait per drone
+
+        Returns:
+            Dict mapping drone_id to world (north, east, down) position
+        """
+        local_positions = self._get_all_positions(timeout)
+        world_positions = {}
+        for drone_id, local_pos in local_positions.items():
+            world_positions[drone_id] = self._local_to_world(local_pos, drone_id)
+        return world_positions
+
     # ----- Failure Handling -----
 
     def _handle_failure(self, event: FailureEvent) -> None:
@@ -1093,6 +1689,16 @@ class SwarmController:
     def is_armed(self) -> bool:
         """Whether all drones are armed."""
         return self._is_armed
+
+    @property
+    def num_drones(self) -> int:
+        """Number of drones in the swarm."""
+        return self.config.num_drones
+
+    @property
+    def drones(self) -> dict[int, mavutil.mavlink_connection]:
+        """Dictionary of drone connections (drone_id -> connection)."""
+        return self._connections
 
     def get_active_drone_count(self) -> int:
         """Get count of active (healthy) drones."""

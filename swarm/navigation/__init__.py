@@ -71,6 +71,16 @@ from .position_source import (
     GPSDenialSimulator,
 )
 
+from .gps_jammer import (
+    GPSJammer,
+    GPSJammerConfig,
+    GPSDenialZone,
+    DenialZoneShape,
+    ScheduledDenial,
+    create_urban_denial_zones,
+    create_canyon_denial_zone,
+)
+
 __all__ = [
     # Configuration
     "NavigationConfig",
@@ -102,4 +112,12 @@ __all__ = [
     "PositionSource",
     "GPSData",
     "GPSDenialSimulator",
+    # GPS Jammer
+    "GPSJammer",
+    "GPSJammerConfig",
+    "GPSDenialZone",
+    "DenialZoneShape",
+    "ScheduledDenial",
+    "create_urban_denial_zones",
+    "create_canyon_denial_zone",
 ]

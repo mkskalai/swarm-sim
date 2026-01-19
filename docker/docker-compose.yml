@@ -5,13 +5,13 @@
 #     docker compose --profile dev up
 #
 #   CI/CD mode (self-contained tests):
-#     docker compose --profile ci run swarm
+#     docker compose --profile ci run swarm-ci
 #
 #   Interactive shell:
 #     docker compose run --rm swarm bash
 #
-#   Run specific test:
-#     docker compose run --rm swarm python scripts/test_phase7.py --scenario standalone
+#   Run simulation tests:
+#     docker compose --profile dev run --rm swarm-dev python scripts/run_tests.py --sim -n 3
 #
 #   Minimal image (no perception stack):
 #     docker compose --profile minimal up
@@ -63,6 +63,7 @@ services:
       - ${XAUTHORITY:-${HOME}/.Xauthority}:/home/swarm/.Xauthority:rw
       # Mount source code for development
       - ../swarm:/app/swarm:rw
+      - ../swarm_ros:/app/swarm_ros:rw
       - ../models:/app/models:rw
       - ../worlds:/app/worlds:rw
       - ../scripts:/app/scripts:rw
@@ -98,8 +99,8 @@ services:
     environment:
       - DISPLAY=
       - QT_QPA_PLATFORM=offscreen
-    # Run tests by default
-    command: ["pytest", "tests/", "-v", "--tb=short"]
+    # Run unit tests by default
+    command: ["python", "scripts/run_tests.py", "--unit"]
 
   # Headless simulation server (no GUI)
   swarm-headless:
@@ -112,7 +113,7 @@ services:
       - DISPLAY=
       - QT_QPA_PLATFORM=offscreen
       - GZ_SIM_HEADLESS_RENDERING=1
-    command: ["python", "scripts/run_phase3_test.py", "--num-drones", "3"]
+    command: ["python", "scripts/run_tests.py", "--sim", "-n", "3"]
 
   # Minimal profile - no perception stack (PyTorch, YOLO, OpenCV)
   # Smaller image (~8-12GB vs ~15-20GB), good for pure simulation/control testing

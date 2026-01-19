@@ -332,16 +332,13 @@ class SwarmBridge(Node):
         # Map integer formation type to FormationType enum
         formation_map = {
             0: self._FormationType.LINE,
-            1: self._FormationType.V_FORMATION,
-            2: self._FormationType.TRIANGLE,
-            3: self._FormationType.GRID,
-            4: self._FormationType.CIRCLE,
-            5: self._FormationType.DIAMOND,
+            1: self._FormationType.GRID,
+            2: self._FormationType.STAR,
         }
 
         if request.formation_type not in formation_map:
             response.success = False
-            response.message = f"Invalid formation type: {request.formation_type}. Valid: 0=LINE, 1=V, 2=TRIANGLE, 3=GRID, 4=CIRCLE, 5=DIAMOND"
+            response.message = f"Invalid formation type: {request.formation_type}. Valid: 0=LINE, 1=GRID, 2=STAR"
             return response
 
         formation_type = formation_map[request.formation_type]
