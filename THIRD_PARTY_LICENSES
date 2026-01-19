@@ -1,0 +1,143 @@
+Third-Party Licenses
+====================
+
+This project uses the following third-party libraries. Their licenses are
+listed below grouped by license type.
+
+
+AGPL-3.0 (GNU Affero General Public License v3.0)
+-------------------------------------------------
+
+ultralytics (YOLOv11)
+  Copyright (c) Ultralytics
+  https://github.com/ultralytics/ultralytics
+  License: https://www.gnu.org/licenses/agpl-3.0.html
+
+  NOTE: This component is licensed under AGPL-3.0. If you modify this
+  component and provide it as a network service, you must make your
+  source code available. Commercial licenses are available from Ultralytics.
+
+
+LGPL-3.0 (GNU Lesser General Public License v3.0)
+-------------------------------------------------
+
+pymavlink
+  Copyright (c) ArduPilot Development Team
+  https://github.com/ArduPilot/pymavlink
+  License: https://www.gnu.org/licenses/lgpl-3.0.html
+
+
+Apache License 2.0
+------------------
+
+opencv-python
+  Copyright (c) OpenCV team
+  https://github.com/opencv/opencv-python
+  License: https://www.apache.org/licenses/LICENSE-2.0
+
+pytest-asyncio
+  Copyright (c) pytest-asyncio contributors
+  https://github.com/pytest-dev/pytest-asyncio
+  License: https://www.apache.org/licenses/LICENSE-2.0
+
+ROS2 (Robot Operating System 2)
+  Copyright (c) Open Robotics
+  https://github.com/ros2
+  License: https://www.apache.org/licenses/LICENSE-2.0
+
+Gazebo
+  Copyright (c) Open Robotics
+  https://gazebosim.org
+  License: https://www.apache.org/licenses/LICENSE-2.0
+
+
+BSD 3-Clause License
+--------------------
+
+NumPy
+  Copyright (c) NumPy Developers
+  https://github.com/numpy/numpy
+  License: https://opensource.org/licenses/BSD-3-Clause
+
+SciPy
+  Copyright (c) SciPy Developers
+  https://github.com/scipy/scipy
+  License: https://opensource.org/licenses/BSD-3-Clause
+
+Jinja2
+  Copyright (c) Pallets
+  https://github.com/pallets/jinja
+  License: https://opensource.org/licenses/BSD-3-Clause
+
+MAVSDK-Python
+  Copyright (c) Auterion
+  https://github.com/mavlink/MAVSDK-Python
+  License: https://opensource.org/licenses/BSD-3-Clause
+
+
+MIT License
+-----------
+
+pytest
+  Copyright (c) pytest-dev contributors
+  https://github.com/pytest-dev/pytest
+  License: https://opensource.org/licenses/MIT
+
+lark
+  Copyright (c) Erez Shinan
+  https://github.com/lark-parser/lark
+  License: https://opensource.org/licenses/MIT
+
+black
+  Copyright (c) Python Software Foundation
+  https://github.com/psf/black
+  License: https://opensource.org/licenses/MIT
+
+ruff
+  Copyright (c) Astral Software Inc.
+  https://github.com/astral-sh/ruff
+  License: https://opensource.org/licenses/MIT
+
+mypy
+  Copyright (c) Jukka Lehtosalo and contributors
+  https://github.com/python/mypy
+  License: https://opensource.org/licenses/MIT
+
+
+ISC License
+-----------
+
+pexpect
+  Copyright (c) Noah Spurrier and contributors
+  https://github.com/pexpect/pexpect
+  License: https://opensource.org/licenses/ISC
+
+
+Other / Custom
+--------------
+
+empy
+  Copyright (c) Erik Max Francis
+  http://www.alcyone.com/software/empy/
+  License: BSD-style
+
+
+External Tools (Not Bundled)
+----------------------------
+
+The following tools are used at runtime but not distributed with this project:
+
+ArduPilot SITL
+  Copyright (c) ArduPilot Development Team
+  https://github.com/ArduPilot/ardupilot
+  License: GPL-3.0
+
+MAVProxy
+  Copyright (c) ArduPilot Development Team
+  https://github.com/ArduPilot/MAVProxy
+  License: GPL-3.0
+
+ardupilot_gazebo
+  Copyright (c) ArduPilot Development Team
+  https://github.com/ArduPilot/ardupilot_gazebo
+  License: GPL-3.0

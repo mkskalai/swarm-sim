@@ -4,7 +4,7 @@
   <name>swarm_ros</name>
   <version>0.1.0</version>
   <description>ROS2 package for drone swarm P2P communication and coordination</description>
-  <maintainer email="dev@example.com">Swarm Developer</maintainer>
+  <maintainer email="maksym.kalaidov@gmail.com">Maksym Kalaidov</maintainer>
   <license>MIT</license>
 
   <!-- Build tools - ament_cmake_python for mixed CMake+Python -->

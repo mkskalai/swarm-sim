@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Swarm Developers"}
+    {name = "Maksym Kalaidov"}
 ]
 keywords = ["drone", "swarm", "simulation", "ardupilot", "gazebo", "ros2", "mavsdk"]
 classifiers = [
