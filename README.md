@@ -68,9 +68,10 @@ swarm/
 | 3. Coordination | ✅ | Formations, leader-follower, missions |
 | 4. ROS2 Integration | ✅ | P2P topics, services, SwarmBridge |
 | 5. Perception | ✅ | YOLOv11 detection, tracking |
-| 6. GPS-Denied Nav | ⬜ | Visual odometry (planned) |
-| 7. Behaviors | ⬜ | Pursuit, search patterns (planned) |
-| 8. Docker | ⬜ | Containerization (planned) |
+| 6. GPS-Denied Nav | ✅ | ORB+optical flow VIO, EKF fusion |
+| 7. Autonomous Missions | ✅ | Pursuit, search patterns, GPS jamming |
+| 8. Docker | ✅ | Multi-stage build, dev/ci/headless profiles |
+| 9. Tactical Overwatch | ⬜ | [Planned](docs/phase9-tactical-overwatch.md) - Coverage mesh, threat intercept |
 
 ## License
 
