@@ -5,7 +5,7 @@ A simulation platform for drone swarm research using ArduPilot SITL, Gazebo Harm
 ## Features
 
 - **Multi-drone simulation** - 3-15 quadcopters with unique MAVLink ports
-- **6 formation patterns** - Line, V, Triangle, Grid, Circle, Diamond
+- **3 formation patterns** - Line, Grid, Star
 - **Leader-follower mode** - Automatic leader promotion on failure
 - **ROS2 integration** - P2P communication, neighbor tracking, collision avoidance
 - **Perception pipeline** - YOLOv11 object detection with tracking
@@ -25,14 +25,13 @@ A simulation platform for drone swarm research using ArduPilot SITL, Gazebo Harm
 # Setup environment
 source ~/setup_swarm_env.sh
 
-# Generate drone models (first time only)
-python scripts/generate_world.py --num-drones 3
+# Run unit tests (no simulation required)
+python scripts/run_tests.py --unit
 
-# Run 3-drone simulation with formation test
-python scripts/run_phase3_test.py --num-drones 3
+# Run 3-drone simulation test
+python scripts/run_tests.py --sim -n 3
 
-# Or with ROS2 bridge (separate terminals):
-python scripts/run_phase3_test.py --num-drones 3 --skip-test
+# Run with ROS2 bridge
 ros2 launch swarm_ros simulation.launch.py num_drones:=3
 ```
 
@@ -63,7 +62,7 @@ swarm/
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 1. Single Drone | ✅ | MAVSDK-based drone controller |
+| 1. Single Drone | ✅ | pymavlink-based drone controller |
 | 2. Multi-Drone | ✅ | Fleet spawning with pymavlink |
 | 3. Coordination | ✅ | Formations, leader-follower, missions |
 | 4. ROS2 Integration | ✅ | P2P topics, services, SwarmBridge |
